@@ -881,7 +881,20 @@ public:
     std::vector<WorldLocation> GetCityLocations(Player* bot);
     std::vector<uint32> GetFlightNodesInZone(uint32 zoneId, TeamId team, uint32 excludeNode = 0) const;
     bool SelectAuctioneerByMap(Player* bot, NpcLocation& outAuctioneer);
+    std::pair<uint32, uint32> GetZoneLevelRange(uint32 zone) const
+    {
+        auto itr = zone2LevelBracket.find(zone);
+        return itr == zone2LevelBracket.end() ? std::pair<uint32, uint32>{0, 0}
+                                              : std::pair<uint32, uint32>{itr->second.low, itr->second.high};
+    }
     std::vector<WorldLocation> const& GetLocsPerLevelCache(uint8 level) { return locsPerLevelCache[level]; }
+    std::vector<std::pair<WorldLocation, uint32>> const& GetPopulationLocations(uint32 map, uint32 zone) const
+    {
+        static std::vector<std::pair<WorldLocation, uint32>> const empty;
+        auto itr = populationLocations.find({map, zone});
+        return itr == populationLocations.end() ? empty : itr->second;
+    }
+    bool IsPopulationLocationSafe(WorldLocation const& location, uint32 faction) const;
 
     template <class D, class W, class URBG>
     void weighted_shuffle(D first, D last, W first_weight, W last_weight, URBG&& g)
@@ -999,6 +1012,8 @@ private:
     std::map<uint8, std::vector<BankerLocation>> bankerLocsPerLevelCache;
     std::unordered_map<uint32, WorldLocation> bankerEntryToLocation;
     std::map<uint8, std::vector<WorldLocation>> locsPerLevelCache;
+    std::map<std::pair<uint32, uint32>, std::vector<std::pair<WorldLocation, uint32>>> populationLocations;
+    std::map<std::tuple<uint32, int32, int32>, std::vector<std::pair<WorldLocation, uint32>>> populationThreats;
     std::unordered_map<uint32, std::vector<WorldLocation>> creatureSpawnsByTemplate;
     std::map<uint32, LevelBracket> zone2LevelBracket;
 };

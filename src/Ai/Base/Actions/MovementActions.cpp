@@ -4,6 +4,7 @@
  * or (at your option) any later version.
  */
 
+#include "BotPopulation.h"
 #include "MovementActions.h"
 #include "Corpse.h"
 #include "Event.h"
@@ -61,6 +62,8 @@ void MovementAction::CreateWp(Player* wpOwner, float x, float y, float z, float 
 
 bool MovementAction::JumpTo(uint32 mapId, float x, float y, float z, MovementPriority priority)
 {
+    if (!IsPopulationTravelAllowed(bot, WorldLocation(mapId, x, y, z)))
+        return false;
     UpdateMovementState();
     if (!IsMovingAllowed())
         return false;
@@ -169,6 +172,8 @@ bool MovementAction::MoveToLOS(WorldObject* target, bool ranged)
 bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool /*idle*/, bool /*react*/, bool normal_only,
                             bool exact_waypoint, MovementPriority priority, bool lessDelay, bool backwards)
 {
+    if (!IsPopulationTravelAllowed(bot, WorldLocation(mapId, x, y, z)))
+        return false;
     UpdateMovementState();
     if (!IsMovingAllowed())
     {

@@ -4,7 +4,9 @@
  * or (at your option) any later version.
  */
 
+#include "BotPopulation.h"
 #include "PlayerbotAI.h"
+#include "InstanceExitCleanup.h"
 #include "AiFactory.h"
 #include "BudgetValues.h"
 #include "ChannelMgr.h"
@@ -258,6 +260,9 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     // Early return if bot is in invalid state
     if (!bot || !bot->GetSession() || !bot->IsInWorld() || bot->IsBeingTeleported() ||
         bot->GetSession()->IsLoggingOut() || bot->IsDuringRemoveFromWorld())
+        return;
+
+    if (bot->CustomData.Get<InstanceExitCleanupState>(InstanceExitCleanupState::Key))
         return;
 
     // Bots send no movement opcodes, so m_lastFallZ stays frozen and Player::IsFalling() (a Z test
@@ -550,6 +555,11 @@ void PlayerbotAI::UpdateAIInternal([[maybe_unused]] uint32 elapsed, bool minimal
 
     if (!bot->GetMap())
         return; // instances are created and destroyed on demand
+
+    if (BotPopulationState const* population = GetBotPopulation(bot))
+        if (!population->Ready || (population->Assignment.Purpose == BotPopulationPurpose::World &&
+            bot->GetPhaseMask() != PHASEMASK_NORMAL))
+            return;
 
     // kinda expensive call to make on every single updateAI, do we really need this information?
     std::string const mapString = WorldPosition(bot).isOverworld() ? std::to_string(bot->GetMapId()) : "I";
@@ -1205,6 +1215,49 @@ void PlayerbotAI::HandleBotOutgoingPacket(WorldPacket const& packet)
 
     switch (packet.GetOpcode())
     {
+        case SMSG_LFG_JOIN_RESULT:
+        {
+            BotPopulationState const* population = GetBotPopulation(bot);
+            if (!population || population->Assignment.Purpose != BotPopulationPurpose::Dungeon ||
+                packet.size() < sizeof(uint32) * 2)
+                return;
+            WorldPacket resultPacket(packet);
+            resultPacket.rpos(0);
+            uint32 result = 0;
+            uint32 check = 0;
+            resultPacket >> result >> check;
+            if (result == lfg::LFG_JOIN_OK)
+                LOG_INFO("playerbots", "Population LFG: {} accepted into queue as role {}",
+                    bot->GetName(), uint32(population->Assignment.Role));
+            else
+            {
+                LOG_WARN("playerbots", "Population LFG: {} rejected, result {} check {}",
+                    bot->GetName(), result, check);
+                if (resultPacket.rpos() == resultPacket.size())
+                    return;
+                uint8 players = 0;
+                resultPacket >> players;
+                for (uint8 index = 0; index < players; ++index)
+                {
+                    if (resultPacket.size() - resultPacket.rpos() < sizeof(uint64) + sizeof(uint32))
+                        return;
+                    ObjectGuid guid;
+                    uint32 locks = 0;
+                    resultPacket >> guid >> locks;
+                    for (uint32 lock = 0; lock < locks; ++lock)
+                    {
+                        if (resultPacket.size() - resultPacket.rpos() < sizeof(uint32) * 2)
+                            return;
+                        uint32 dungeon = 0;
+                        uint32 reason = 0;
+                        resultPacket >> dungeon >> reason;
+                        LOG_WARN("playerbots", "Population LFG: {} blocked dungeon {} lock {} for {}",
+                            bot->GetName(), dungeon, reason, guid.ToString());
+                    }
+                }
+            }
+            return;
+        }
         case SMSG_SPELL_FAILURE:
         {
             WorldPacket p(packet);
@@ -4721,6 +4774,10 @@ bool PlayerbotAI::AllowActive(ActivityType activityType)
     if (!bot || !bot->GetSession() || !bot->IsInWorld() || bot->IsBeingTeleported() ||
         bot->GetSession()->IsLoggingOut() || bot->IsDuringRemoveFromWorld())
         return false;
+
+    if (BotPopulationState const* population = GetBotPopulation(bot))
+        if (population->Ready)
+            return true;
 
     // always allow packet handling (e.g. group invites, trade, loot, friend requests etc)
     if (activityType == PACKET_ACTIVITY)

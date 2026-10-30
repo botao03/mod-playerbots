@@ -38,6 +38,13 @@ bool NearestEnemyPlayersValue::AcceptUnit(Unit* unit)
 
 Unit* EnemyPlayerValue::Calculate()
 {
+    if (sPlayerbotAIConfig.CoordinatedBattlegrounds && bot->InBattleground() && !bot->InArena() && !bot->GetVehicle())
+    {
+        Unit* target = botAI->GetUnit(AI_VALUE(ObjectGuid, "bg focus target"));
+        return target && target->IsAlive() && bot->IsValidAttackTarget(target) &&
+            !target->HasBreakableByDamageCrowdControlAura() ? target : nullptr;
+    }
+
     bool controllingCannon = false;
     bool controllingVehicle = false;
     bool passenger = false;

@@ -5,6 +5,7 @@
  */
 
 #include "NewRpgAction.h"
+#include "BotPopulation.h"
 #include "AreaDefines.h"
 #include "BroadcastHelper.h"
 #include "ChatHelper.h"
@@ -251,6 +252,10 @@ bool NewRpgStatusUpdateAction::Execute(Event /*event*/)
     switch (status)
     {
         case RPG_IDLE:
+            if (BotPopulationState const* population = GetBotPopulation(bot))
+                if (population->Assignment.Purpose == BotPopulationPurpose::World)
+                    return RandomChangeStatus({RPG_GO_CAMP, RPG_GO_GRIND, RPG_WANDER_RANDOM, RPG_WANDER_NPC,
+                        RPG_DO_QUEST, RPG_REST, RPG_DO_GATHER});
             return RandomChangeStatus({RPG_GO_CAMP, RPG_GO_GRIND, RPG_WANDER_RANDOM, RPG_WANDER_NPC, RPG_DO_QUEST,
                                        RPG_TRAVEL_FLIGHT, RPG_REST, RPG_OUTDOOR_PVP, RPG_DO_GATHER});
 
@@ -660,6 +665,11 @@ bool NewRpgDoQuestAction::DoCompletedQuest(NewRpgInfo::DoQuest& data)
 
 bool NewRpgTravelFlightAction::Execute(Event /*event*/)
 {
+    if (GetBotPopulation(bot))
+    {
+        botAI->rpgInfo.ChangeToIdle();
+        return false;
+    }
     NewRpgInfo& info = botAI->rpgInfo;
     auto* dataPtr = std::get_if<NewRpgInfo::TravelFlight>(&info.data);
     if (!dataPtr)

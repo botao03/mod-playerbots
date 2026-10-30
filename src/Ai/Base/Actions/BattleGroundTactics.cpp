@@ -5,6 +5,7 @@
  */
 
 #include "BattleGroundTactics.h"
+#include "BattlegroundTacticsPolicy.h"
 #include "ArenaTeam.h"
 #include "ArenaTeamMgr.h"
 #include "BattleGroundJoinAction.h"
@@ -31,6 +32,59 @@
 #include "ServerFacade.h"
 #include "Vehicle.h"
 #include <algorithm>
+#include <limits>
+
+namespace
+{
+constexpr uint32 TACTICAL_SQUAD_SIZE = 3;
+constexpr float OBJECTIVE_ASSIGNMENT_RADIUS = 20.0f;
+constexpr float OBJECTIVE_SUPPORT_RADIUS = 35.0f;
+constexpr float OBJECTIVE_THREAT_RADIUS = 45.0f;
+
+struct BattlegroundTeamRole
+{
+    uint32 Index = 0;
+    uint32 Count = 0;
+    bool Escort = false;
+};
+
+BattlegroundTeamRole GetBattlegroundTeamRole(Player* bot, ObjectGuid carrier = ObjectGuid::Empty)
+{
+    std::vector<Player*> teammates;
+    if (Battleground* battleground = bot->GetBattleground())
+        for (auto const& reference : battleground->GetBgMap()->GetPlayers())
+            if (Player* player = reference.GetSource())
+                if (player->GetTeamId() == bot->GetTeamId() && player->GetGUID() != carrier &&
+                    GET_PLAYERBOT_AI(player))
+                    teammates.push_back(player);
+    std::sort(teammates.begin(), teammates.end(), [](Player const* left, Player const* right)
+    { return left->GetGUID() < right->GetGUID(); });
+    uint32 healers = 0;
+    uint32 damage = 0;
+    uint32 healerIndex = 0;
+    uint32 damageIndex = 0;
+    BattlegroundTeamRole role;
+    role.Count = teammates.size();
+    for (uint32 index = 0; index < teammates.size(); ++index)
+    {
+        Player* player = teammates[index];
+        if (player == bot)
+        {
+            role.Index = index;
+            healerIndex = healers;
+            damageIndex = damage;
+        }
+        if (PlayerbotAI::IsHeal(player))
+            ++healers;
+        else
+            ++damage;
+    }
+    uint32 escortCount = BattlegroundEscortCount(role.Count);
+    role.Escort = PlayerbotAI::IsHeal(bot) ? healerIndex == 0
+        : damageIndex < escortCount - (healers ? 1u : 0u);
+    return role;
+}
+}
 
 // common bg positions
 Position const WS_WAITING_POS_HORDE_1 = {944.981f, 1423.478f, 345.434f, 6.18f};
@@ -1587,6 +1641,9 @@ bool BGTactics::Execute(Event /*event*/)
     if (bgType == BATTLEGROUND_RB)
         bgType = bot->GetBattleground()->GetBgTypeID(true);
 
+    if (bgType == BATTLEGROUND_SA && sPlayerbotAIConfig.CoordinatedBattlegrounds)
+        return strandTactics();
+
     switch (bgType)
     {
         case BATTLEGROUND_AB:
@@ -1689,6 +1746,15 @@ bool BGTactics::Execute(Event /*event*/)
         {
             // bot->GetMotionMaster()->MovementExpired();
             return false;
+        }
+
+        if (sPlayerbotAIConfig.CoordinatedBattlegrounds &&
+            (AI_VALUE(PositionMap&, "position")["bg guard"].isSet() ||
+                bgType == BATTLEGROUND_WS || bgType == BATTLEGROUND_EY))
+        {
+            if ((bgType == BATTLEGROUND_WS && wsJumpDown()) || (bgType == BATTLEGROUND_EY && eyJumpDown()))
+                return true;
+            return moveToObjective(true);
         }
 
         if (!moveToObjective(false))
@@ -1862,6 +1928,9 @@ bool BGTactics::selectObjective(bool reset)
     if (pos.isSet() && !reset)
         return false;
 
+    if (sPlayerbotAIConfig.CoordinatedBattlegrounds && selectCoordinatedObjective())
+        return true;
+
     WorldObject* BgObjective = nullptr;
 
     BattlegroundTypeId bgType = bg->GetBgTypeID();
@@ -1903,7 +1972,7 @@ bool BGTactics::selectObjective(bool reset)
             if (enemyStrategy == AV_STRATEGY_DEFENSIVE)
                 defendersProhab = 0;
 
-            bool isDefender = role < defendersProhab;
+            bool isDefender = !sPlayerbotAIConfig.CoordinatedBattlegrounds && role < defendersProhab;
             bool isAdvanced = !isDefender && role > 8;
 
             auto const& attackObjectives =
@@ -2798,6 +2867,7 @@ bool BGTactics::selectObjective(bool reset)
 
             uint32 role = context->GetValue<uint32>("bg role")->Get();
             bool inVehicle = botAI->IsInVehicle();
+            bool captureResources = !sPlayerbotAIConfig.CoordinatedBattlegrounds || inVehicle;
             bool controlsVehicle = botAI->IsInVehicle(true);
             uint32 vehicleId = inVehicle ? bot->GetVehicleBase()->GetEntry() : 0;
 
@@ -2878,7 +2948,7 @@ bool BGTactics::selectObjective(bool reset)
                 }
 
                 // If gates arent down and not in vehicle, split tasks
-                if (!BgObjective && !controlsVehicle && role == 9)  // Capture Side base
+                if (captureResources && !BgObjective && !controlsVehicle && role == 9)  // Capture Side base
                 {
                     // Capture Refinery
                     ICNodePoint const& nodePoint = isleOfConquestBG->GetICNodePoint(NODE_TYPE_REFINERY);
@@ -2889,7 +2959,7 @@ bool BGTactics::selectObjective(bool reset)
                     }
                 }
 
-                if (!BgObjective && !controlsVehicle && role < 3)  // Capture Docks
+                if (captureResources && !BgObjective && !controlsVehicle && role < 3)  // Capture Docks
                 {
                     ICNodePoint const& nodePoint = isleOfConquestBG->GetICNodePoint(NODE_TYPE_DOCKS);
                     if (nodePoint.nodeState != NODE_STATE_CONFLICT_H && nodePoint.nodeState != NODE_STATE_CONTROLLED_H)
@@ -2901,7 +2971,7 @@ bool BGTactics::selectObjective(bool reset)
                         }
                     }
                 }
-                if (!BgObjective && !controlsVehicle && role < 6)  // Capture Hangar
+                if (captureResources && !BgObjective && !controlsVehicle && role < 6)  // Capture Hangar
                 {
                     ICNodePoint const& nodePoint = isleOfConquestBG->GetICNodePoint(NODE_TYPE_HANGAR);
                     if (nodePoint.nodeState != NODE_STATE_CONFLICT_H && nodePoint.nodeState != NODE_STATE_CONTROLLED_H)
@@ -2913,7 +2983,7 @@ bool BGTactics::selectObjective(bool reset)
                         }
                     }
                 }
-                if (!BgObjective && !controlsVehicle)  // Capture Workshop
+                if (captureResources && !BgObjective && !controlsVehicle)  // Capture Workshop
                 {
                     ICNodePoint const& nodePoint = isleOfConquestBG->GetICNodePoint(NODE_TYPE_WORKSHOP);
                     if (nodePoint.nodeState != NODE_STATE_CONFLICT_H && nodePoint.nodeState != NODE_STATE_CONTROLLED_H)
@@ -2925,7 +2995,7 @@ bool BGTactics::selectObjective(bool reset)
                         }
                     }
                 }
-                if (!BgObjective)  // Guard point that's not fully capped (also gets them in place to board vehicle)
+                if (captureResources && !BgObjective)  // Wait for the capture and vehicle spawn.
                 {
                     uint32 len = end(IC_AttackObjectives) - begin(IC_AttackObjectives);
                     for (uint32 i = 0; i < len; i++)
@@ -3033,7 +3103,7 @@ bool BGTactics::selectObjective(bool reset)
                 }
 
                 // If gates arent down and not in vehicle, split tasks
-                if (!BgObjective && !controlsVehicle && role == 9)  // Capture Side base
+                if (captureResources && !BgObjective && !controlsVehicle && role == 9)  // Capture Side base
                 {
                     // Capture Refinery
                     ICNodePoint const& nodePoint = isleOfConquestBG->GetICNodePoint(NODE_TYPE_QUARRY);
@@ -3044,7 +3114,7 @@ bool BGTactics::selectObjective(bool reset)
                     }
                 }
 
-                if (!BgObjective && !controlsVehicle && role < 3)  // Capture Docks
+                if (captureResources && !BgObjective && !controlsVehicle && role < 3)  // Capture Docks
                 {
                     ICNodePoint const& nodePoint = isleOfConquestBG->GetICNodePoint(NODE_TYPE_DOCKS);
                     if (nodePoint.nodeState != NODE_STATE_CONFLICT_A && nodePoint.nodeState != NODE_STATE_CONTROLLED_A)
@@ -3056,7 +3126,7 @@ bool BGTactics::selectObjective(bool reset)
                         }
                     }
                 }
-                if (!BgObjective && !controlsVehicle && role < 6)  // Capture Hangar
+                if (captureResources && !BgObjective && !controlsVehicle && role < 6)  // Capture Hangar
                 {
                     ICNodePoint const& nodePoint = isleOfConquestBG->GetICNodePoint(NODE_TYPE_HANGAR);
                     if (nodePoint.nodeState != NODE_STATE_CONFLICT_A && nodePoint.nodeState != NODE_STATE_CONTROLLED_A)
@@ -3068,7 +3138,7 @@ bool BGTactics::selectObjective(bool reset)
                         }
                     }
                 }
-                if (!BgObjective && !controlsVehicle)  // Capture Workshop
+                if (captureResources && !BgObjective && !controlsVehicle)  // Capture Workshop
                 {
                     ICNodePoint const& nodePoint = isleOfConquestBG->GetICNodePoint(NODE_TYPE_WORKSHOP);
                     if (nodePoint.nodeState != NODE_STATE_CONFLICT_A && nodePoint.nodeState != NODE_STATE_CONTROLLED_A)
@@ -3080,7 +3150,7 @@ bool BGTactics::selectObjective(bool reset)
                         }
                     }
                 }
-                if (!BgObjective)  // Guard point that's not fully capped (also gets them in place to board vehicle)
+                if (captureResources && !BgObjective)  // Wait for the capture and vehicle spawn.
                 {
                     uint32 len = end(IC_AttackObjectives) - begin(IC_AttackObjectives);
                     for (uint32 i = 0; i < len; i++)
@@ -3164,6 +3234,9 @@ bool BGTactics::moveToObjective(bool ignoreDist)
         // don't try to move if already close
         if (bot->GetDistance(pos.x, pos.y, pos.z) < 4.0f)
         {
+            if (sPlayerbotAIConfig.CoordinatedBattlegrounds &&
+                AI_VALUE(PositionMap&, "position")["bg guard"].isSet())
+                return true;
             resetObjective();
             return true;
         }
@@ -3347,6 +3420,8 @@ bool BGTactics::resetObjective()
     // Reset objective position
     PositionMap& posMap = context->GetValue<PositionMap&>("position")->Get();
     PositionInfo pos = context->GetValue<PositionMap&>("position")->Get()["bg objective"];
+    if (sPlayerbotAIConfig.CoordinatedBattlegrounds)
+        posMap["bg previous objective"] = pos;
     pos.Reset();
     posMap["bg objective"] = pos;
 
@@ -3654,7 +3729,9 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
         {
             // Check for enemy players near the flag using bot's targeting system
             Unit* enemyPlayer = AI_VALUE(Unit*, "enemy player target");
-            if (enemyPlayer && enemyPlayer->IsAlive())
+            if (enemyPlayer && enemyPlayer->IsAlive() &&
+                !(sPlayerbotAIConfig.CoordinatedBattlegrounds &&
+                    enemyPlayer->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING)))
             {
                 // If enemy is near the flag, engage them before attempting capture
                 float enemyDist = enemyPlayer->GetDistance(targetFlag);
@@ -3704,6 +3781,9 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
                 float y = bot->GetPositionY() + 5.0f * sin(angle);
                 MoveTo(bot->GetMapId(), x, y, bot->GetPositionZ());
             }
+
+            if (sPlayerbotAIConfig.CoordinatedBattlegrounds)
+                return true;
 
             // Reset objective and take new path for defending
             resetObjective();
@@ -3785,6 +3865,20 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
             case BATTLEGROUND_AB:
             case BATTLEGROUND_IC:
             {
+                if (bgType == BATTLEGROUND_AB && sPlayerbotAIConfig.CoordinatedBattlegrounds)
+                {
+                    int32 object = bg->GetObjectType(go->GetGUID());
+                    if (object < 0 || object / BG_AB_OBJECTS_PER_NODE >= BG_AB_DYNAMIC_NODES_COUNT)
+                        continue;
+                    uint8 state = static_cast<BattlegroundAB*>(bg)
+                        ->GetCapturePointInfo(object / BG_AB_OBJECTS_PER_NODE)._state;
+                    uint8 occupied = bot->GetTeamId() == TEAM_ALLIANCE
+                        ? BG_AB_NODE_STATE_ALLY_OCCUPIED : BG_AB_NODE_STATE_HORDE_OCCUPIED;
+                    uint8 assaulted = bot->GetTeamId() == TEAM_ALLIANCE
+                        ? BG_AB_NODE_STATE_ALLY_CONTESTED : BG_AB_NODE_STATE_HORDE_CONTESTED;
+                    if (state == occupied || state == assaulted)
+                        continue;
+                }
                 // Prevent capturing from inside flag pole
                 if (dist == 0.0f)
                 {
@@ -3957,7 +4051,11 @@ bool BGTactics::protectFC()
         return false;
     }
 
-    if (!bot->IsInCombat() && !bot->IsWithinDistInMap(teamFC, 20.0f))
+    if (sPlayerbotAIConfig.CoordinatedBattlegrounds &&
+        !GetBattlegroundTeamRole(bot, teamFC->GetGUID()).Escort)
+        return false;
+
+    if (!bot->IsInCombat() && !bot->IsWithinDistInMap(teamFC, 12.0f))
     {
         // Get the flag carrier's position
         float fcX = teamFC->GetPositionX();
@@ -3969,6 +4067,322 @@ bool BGTactics::protectFC()
     }
 
     return false;
+}
+
+bool BGTactics::selectCoordinatedObjective()
+{
+    Battleground* bg = bot->GetBattleground();
+    if (!bg || bg->isArena() || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+    BattlegroundTypeId type = bg->GetBgTypeID(true);
+    TeamId team = bot->GetTeamId();
+    BattlegroundTeamRole role = GetBattlegroundTeamRole(bot);
+    uint32 squad = role.Index / TACTICAL_SQUAD_SIZE;
+    PositionMap& positions = AI_VALUE(PositionMap&, "position");
+    PositionInfo previous = positions["bg objective"];
+    if (!previous.isSet())
+        previous = positions["bg previous objective"];
+    positions["bg previous objective"].Reset();
+    positions["bg guard"].Reset();
+    auto setObjective = [&](Position const& target, bool guard)
+    {
+        PositionInfo position;
+        position.Set(target.GetPositionX(), target.GetPositionY(), target.GetPositionZ(), bot->GetMapId());
+        positions["bg objective"] = position;
+        if (guard)
+            positions["bg guard"] = position;
+        return true;
+    };
+    bool carrying = bot->HasAura(BG_WS_SPELL_WARSONG_FLAG) || bot->HasAura(BG_WS_SPELL_SILVERWING_FLAG) ||
+        bot->HasAura(BG_EY_NETHERSTORM_FLAG_SPELL);
+    if (carrying || bot->GetVehicle())
+        return false;
+    if (type == BATTLEGROUND_WS || type == BATTLEGROUND_EY)
+    {
+        Unit* enemy = AI_VALUE(Unit*, "enemy flag carrier");
+        Unit* friendly = AI_VALUE(Unit*, "team flag carrier");
+        BattlegroundTeamRole flagRole = GetBattlegroundTeamRole(bot,
+            friendly ? friendly->GetGUID() : ObjectGuid::Empty);
+        if (friendly && friendly != bot && flagRole.Escort)
+            return setObjective(friendly->GetPosition(), false);
+        if (type == BATTLEGROUND_WS)
+        {
+            if (enemy && enemy->IsAlive() &&
+                (friendly || role.Count <= 2 || role.Index >= BattlegroundEscortCount(role.Count)))
+                return setObjective(enemy->GetPosition(), false);
+            if (friendly)
+                return setObjective(squad % 2 ? WS_ROAM_POS
+                    : team == TEAM_ALLIANCE ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE, true);
+            if (!enemy && role.Index < BattlegroundEscortCount(role.Count))
+                return setObjective(team == TEAM_ALLIANCE ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE, true);
+            return setObjective(team == TEAM_ALLIANCE ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE, false);
+        }
+        if (enemy && enemy->IsAlive() && flagRole.Escort)
+            return setObjective(enemy->GetPosition(), false);
+    }
+
+    struct Objective
+    {
+        Position Location;
+        bool Owned;
+        bool Assaulted;
+        float Importance;
+        bool Neutral = false;
+        uint32 Assigned = 0;
+        uint32 Enemies = 0;
+    };
+    std::vector<Objective> objectives;
+    if (type == BATTLEGROUND_AB)
+    {
+        auto* arathi = static_cast<BattlegroundAB*>(bg);
+        for (uint32 node : AB_AttackObjectives)
+        {
+            uint8 state = arathi->GetCapturePointInfo(node)._state;
+            bool owned = state == (team == TEAM_ALLIANCE
+                ? BG_AB_NODE_STATE_ALLY_OCCUPIED : BG_AB_NODE_STATE_HORDE_OCCUPIED);
+            bool assaulted = state == (team == TEAM_ALLIANCE
+                ? BG_AB_NODE_STATE_ALLY_CONTESTED : BG_AB_NODE_STATE_HORDE_CONTESTED);
+            if (GameObject* flag = bg->GetBGObject(node * BG_AB_OBJECTS_PER_NODE))
+                objectives.push_back({flag->GetPosition(), owned, assaulted, 0.0f,
+                    state == BG_AB_NODE_STATE_NEUTRAL});
+        }
+    }
+    else if (type == BATTLEGROUND_EY)
+    {
+        auto* eye = static_cast<BattlegroundEY*>(bg);
+        uint32 owned = 0;
+        for (auto const& [node, object, trigger] : EY_AttackObjectives)
+        {
+            bool controlled = eye->GetCapturePointInfo(node)._ownerTeamId == team;
+            owned += controlled;
+            objectives.push_back({EY_NodePositions.at(node), controlled, false, 0.0f,
+                eye->GetCapturePointInfo(node)._ownerTeamId == TEAM_NEUTRAL});
+        }
+        if (owned >= 2 && role.Escort && eye->GetFlagPickerGUID().IsEmpty())
+            if (GameObject* flag = bg->GetBGObject(BG_EY_OBJECT_FLAG_NETHERSTORM))
+                return setObjective(flag->GetPosition(), false);
+    }
+    else if (type == BATTLEGROUND_AV)
+    {
+        auto* valley = static_cast<BattlegroundAV*>(bg);
+        auto const& defenses = team == TEAM_ALLIANCE ? AV_DefendObjectives_Alliance : AV_DefendObjectives_Horde;
+        auto const& attacks = team == TEAM_ALLIANCE ? AV_AttackObjectives_Alliance : AV_AttackObjectives_Horde;
+        for (auto const& [node, object] : defenses)
+        {
+            auto const& state = valley->GetAVNodeInfo(node);
+            if (state.State != POINT_ASSAULTED || state.OwnerId == team)
+                continue;
+            if (GameObject* flag = bg->GetBGObject(object))
+                objectives.push_back({flag->GetPosition(), true, false, 700.0f});
+        }
+        uint32 frontline = 0;
+        for (auto const& [node, object] : attacks)
+        {
+            auto const& state = valley->GetAVNodeInfo(node);
+            if (state.State == POINT_DESTROYED || (state.State == POINT_CONTROLLED && state.OwnerId == team))
+                continue;
+            bool assaulted = state.State == POINT_ASSAULTED && state.OwnerId == team;
+            if (!assaulted && frontline++ >= TACTICAL_SQUAD_SIZE)
+                continue;
+            if (GameObject* flag = bg->GetBGObject(object))
+                objectives.push_back({flag->GetPosition(), false, assaulted,
+                    assaulted ? 0.0f : 150.0f / frontline});
+        }
+    }
+    else if (type == BATTLEGROUND_IC)
+    {
+        if (IsLockedInsideKeep())
+            return true;
+        auto* isle = static_cast<BattlegroundIC*>(bg);
+        uint32 controlled = 0;
+        for (auto const& [node, object] : IC_AttackObjectives)
+        {
+            uint32 state = isle->GetNodeState(node);
+            bool owned = state == (team == TEAM_ALLIANCE ? NODE_STATE_CONTROLLED_A : NODE_STATE_CONTROLLED_H);
+            bool assaulted = state == (team == TEAM_ALLIANCE ? NODE_STATE_CONFLICT_A : NODE_STATE_CONFLICT_H);
+            controlled += owned;
+            if (GameObject* flag = bg->GetBGObject(object))
+                objectives.push_back({flag->GetPosition(), owned, assaulted,
+                    node == NODE_TYPE_WORKSHOP ? 80.0f : 0.0f, state == NODE_STATE_UNCONTROLLED});
+        }
+        for (auto const& [node, object] :
+            {std::pair{NODE_TYPE_QUARRY, BG_IC_GO_QUARRY_BANNER},
+                std::pair{NODE_TYPE_REFINERY, BG_IC_GO_REFINERY_BANNER}})
+        {
+            uint32 state = isle->GetNodeState(node);
+            bool owned = state == (team == TEAM_ALLIANCE ? NODE_STATE_CONTROLLED_A : NODE_STATE_CONTROLLED_H);
+            bool assaulted = state == (team == TEAM_ALLIANCE ? NODE_STATE_CONFLICT_A : NODE_STATE_CONFLICT_H);
+            if (GameObject* flag = bg->GetBGObject(object))
+                objectives.push_back({flag->GetPosition(), owned, assaulted, 0.0f,
+                    state == NODE_STATE_UNCONTROLLED});
+        }
+        uint32 resourceSquad = std::max(TACTICAL_SQUAD_SIZE, role.Count / 3);
+        if (controlled >= 2 && role.Index >= resourceSquad)
+            return false;
+    }
+    else
+        return false;
+
+    uint32 teamSize = 0;
+    for (auto const& reference : bg->GetBgMap()->GetPlayers())
+    {
+        Player* player = reference.GetSource();
+        if (!player)
+            continue;
+        bool friendly = player->GetTeamId() == team;
+        teamSize += friendly;
+        if (!player->IsAlive())
+            continue;
+        PositionInfo assignment;
+        if (friendly && player != bot)
+            if (PlayerbotAI* ai = GET_PLAYERBOT_AI(player))
+                assignment = ai->GetAiObjectContext()->GetValue<PositionMap&>("position")->Get()["bg objective"];
+        Objective* assigned = nullptr;
+        float nearest = std::numeric_limits<float>::max();
+        for (Objective& objective : objectives)
+        {
+            float distance = player->GetDistance2d(objective.Location.GetPositionX(),
+                objective.Location.GetPositionY());
+            if (!friendly)
+            {
+                if (distance < OBJECTIVE_THREAT_RADIUS)
+                    ++objective.Enemies;
+                continue;
+            }
+            if (player == bot)
+                continue;
+            bool committed = assignment.isSet() && assignment.mapId == bot->GetMapId() &&
+                objective.Location.GetExactDist2d(assignment.x, assignment.y) < OBJECTIVE_ASSIGNMENT_RADIUS;
+            float candidate = committed ? 0.0f : distance;
+            if ((committed || distance < OBJECTIVE_SUPPORT_RADIUS) && candidate < nearest)
+            {
+                nearest = candidate;
+                assigned = &objective;
+            }
+        }
+        if (assigned)
+            ++assigned->Assigned;
+    }
+
+    uint32 attackObjectives = std::count_if(objectives.begin(), objectives.end(), [](Objective const& objective)
+    { return !objective.Owned && !objective.Assaulted; });
+    float bestScore = -std::numeric_limits<float>::max();
+    Objective const* best = nullptr;
+    for (uint32 index = 0; index < objectives.size(); ++index)
+    {
+        Objective const& objective = objectives[index];
+        BattlegroundObjectiveDemand demand;
+        demand.Owned = objective.Owned;
+        demand.Assaulted = objective.Assaulted;
+        demand.Neutral = objective.Neutral;
+        demand.Preferred = index == squad % objectives.size();
+        demand.Current = previous.isSet() && previous.mapId == bot->GetMapId() &&
+            objective.Location.GetExactDist2d(previous.x, previous.y) < OBJECTIVE_ASSIGNMENT_RADIUS;
+        demand.Assigned = objective.Assigned;
+        demand.Enemies = objective.Enemies;
+        demand.Capacity = BattlegroundObjectiveCapacity(teamSize, attackObjectives,
+            objective.Owned, objective.Assaulted, objective.Enemies);
+        demand.Distance = bot->GetDistance(objective.Location);
+        demand.Importance = objective.Importance;
+        if (type == BATTLEGROUND_AV && demand.Assigned >= demand.Capacity)
+            continue;
+        float score = BattlegroundObjectiveScore(demand);
+        if (score > bestScore)
+        {
+            best = &objective;
+            bestScore = score;
+        }
+    }
+    if (!best)
+        return false;
+    if (!previous.isSet() || previous.mapId != bot->GetMapId() ||
+        best->Location.GetExactDist2d(previous.x, previous.y) >= OBJECTIVE_ASSIGNMENT_RADIUS)
+        LOG_INFO("playerbots", "BG assignment: {} map {} instance {} team {} target ({:.1f}, {:.1f}) "
+            "committed {} enemies {}", bot->GetName(), bot->GetMapId(), bg->GetInstanceID(), uint32(team),
+            best->Location.GetPositionX(), best->Location.GetPositionY(), best->Assigned, best->Enemies);
+    return setObjective(best->Location, best->Owned || best->Assaulted);
+}
+
+bool BGTactics::strandTactics()
+{
+    auto* bg = dynamic_cast<BattlegroundSA*>(bot->GetBattleground());
+    if (!bg)
+        return false;
+    PositionMap& positions = AI_VALUE(PositionMap&, "position");
+    if (!bg->IsRoundInProgress() || !bot->IsAlive())
+    {
+        positions["bg siege"].Reset();
+        positions["bg objective"].Reset();
+        return false;
+    }
+    bool attacker = bg->GetAttackerTeam() == bot->GetTeamId();
+    uint32 side = GetBattlegroundTeamRole(bot).Index / TACTICAL_SQUAD_SIZE % 2;
+    uint32 gate = side ? BG_SA_BLUE_GATE : BG_SA_GREEN_GATE;
+    bool beachOpen = bg->GetGateState(BG_SA_GREEN_GATE) == BG_SA_GATE_DESTROYED ||
+        bg->GetGateState(BG_SA_BLUE_GATE) == BG_SA_GATE_DESTROYED;
+    bool courtyardOpen = bg->GetGateState(BG_SA_RED_GATE) == BG_SA_GATE_DESTROYED ||
+        bg->GetGateState(BG_SA_PURPLE_GATE) == BG_SA_GATE_DESTROYED;
+    if (beachOpen)
+        gate = side ? BG_SA_RED_GATE : BG_SA_PURPLE_GATE;
+    if (courtyardOpen)
+        gate = BG_SA_YELLOW_GATE;
+    if (bg->GetGateState(BG_SA_YELLOW_GATE) == BG_SA_GATE_DESTROYED)
+        gate = BG_SA_ANCIENT_GATE;
+    if (bg->GetGateState(BG_SA_ANCIENT_GATE) == BG_SA_GATE_DESTROYED)
+    {
+        positions["bg siege"].Reset();
+        if (attacker)
+            if (GameObject* relic = bg->GetBGObject(BG_SA_TITAN_RELIC))
+            {
+                if (bot->GetVehicle())
+                    return botAI->DoSpecificAction("leave vehicle");
+                if (bot->IsWithinDistInMap(relic, INTERACTION_DISTANCE))
+                {
+                    if (bg->CanCaptureObject(BG_SA_TITAN_RELIC))
+                        relic->Use(bot);
+                    return true;
+                }
+                return MoveTo(relic);
+            }
+    }
+    if (attacker && !bot->GetVehicle())
+        for (auto const& [index, graveyard] :
+            {std::pair{BG_SA_LEFT_FLAG, BG_SA_LEFT_CAPTURABLE_GY},
+                std::pair{BG_SA_RIGHT_FLAG, BG_SA_RIGHT_CAPTURABLE_GY},
+                std::pair{BG_SA_CENTRAL_FLAG, BG_SA_CENTRAL_CAPTURABLE_GY}})
+            if (bg->GetGraveyardOwner(graveyard) != bot->GetTeamId() && bg->CanCaptureObject(index))
+                if (GameObject* flag = bg->GetBGObject(index))
+                    if (flag->isSpawned() && !flag->HasFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE) &&
+                        bot->IsWithinDistInMap(flag, 35.0f))
+                    {
+                        if (!bot->IsWithinDistInMap(flag, INTERACTION_DISTANCE))
+                            return MoveTo(flag);
+                        flag->Use(bot);
+                        return true;
+                    }
+    GameObject* objective = bg->GetBGObject(gate);
+    if (!objective)
+        return false;
+    positions["bg objective"].Set(objective->GetPositionX(), objective->GetPositionY(), objective->GetPositionZ(),
+        bot->GetMapId());
+    if (attacker && botAI->IsInVehicle(true))
+    {
+        positions["bg siege"] = positions["bg objective"];
+        float range = 12.0f;
+        if (bot->IsWithinDistInMap(objective, range))
+            return false;
+        return MoveNear(bot->GetMapId(), objective->GetPositionX(), objective->GetPositionY(),
+            objective->GetPositionZ(), range);
+    }
+    positions["bg siege"].Reset();
+    if (bot->IsInCombat())
+        return false;
+    // Infantry screens the breach while demolishers damage the gate; defenders intercept those demolishers.
+    float screenX = objective->GetPositionX() + (attacker ? 18.0f : 8.0f);
+    float screenY = objective->GetPositionY() + (side ? 6.0f : -6.0f);
+    if (bot->GetDistance2d(screenX, screenY) <= 8.0f)
+        return false;
+    return MoveTo(bot->GetMapId(), screenX, screenY, objective->GetPositionZ());
 }
 
 bool BGTactics::useBuff()

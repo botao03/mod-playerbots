@@ -11,6 +11,13 @@
 
 class PlayerbotAI;
 
+class PopulationQueueReadyTrigger : public Trigger
+{
+public:
+    PopulationQueueReadyTrigger(PlayerbotAI* botAI) : Trigger(botAI, "population queue ready", 1) {}
+    bool IsActive() override;
+};
+
 class EnemyPlayerNear : public Trigger
 {
 public:

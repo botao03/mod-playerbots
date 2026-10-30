@@ -8,6 +8,11 @@
 #include "BattlegroundEY.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundWS.h"
+#include "BattlegroundSA.h"
+#include "BattleGroundTactics.h"
+#include "PositionValue.h"
+#include "Spell.h"
+#include <map>
 #include "Playerbots.h"
 #include "ServerFacade.h"
 
@@ -88,6 +93,88 @@ Unit* FlagCarrierValue::Calculate()
     }
 
     return carrier;
+}
+
+GuidVector BattlegroundProtectedControlValue::Calculate()
+{
+    GuidVector protectedEnemies;
+    if (!sPlayerbotAIConfig.CoordinatedBattlegrounds || !bot->InBattleground() || bot->InArena())
+        return protectedEnemies;
+    for (ObjectGuid guid : AI_VALUE(GuidVector, "nearest enemy players"))
+        if (Unit* enemy = botAI->GetUnit(guid))
+            if (enemy->IsAlive() && bot->IsWithinDistInMap(enemy, 60.0f) &&
+                enemy->HasBreakableByDamageCrowdControlAura())
+                protectedEnemies.push_back(guid);
+    return protectedEnemies;
+}
+
+ObjectGuid BattlegroundTargetValue::Calculate()
+{
+    Battleground* bg = bot->GetBattleground();
+    if (!sPlayerbotAIConfig.CoordinatedBattlegrounds || !bg || bg->isArena() ||
+        bg->GetStatus() != STATUS_IN_PROGRESS || !bot->IsAlive() || bot->GetVehicle())
+        return ObjectGuid::Empty;
+
+    std::map<ObjectGuid, uint32> assists;
+    for (ObjectGuid guid : AI_VALUE(GuidVector, "closest friendly players"))
+        if (Unit* friendly = botAI->GetUnit(guid))
+            if (friendly != bot && friendly->IsAlive() && bot->IsWithinDistInMap(friendly, 60.0f))
+                if (Unit* victim = friendly->GetVictim())
+                    ++assists[victim->GetGUID()];
+
+    Unit* enemyCarrier = AI_VALUE(Unit*, "enemy flag carrier");
+    Unit* teamCarrier = AI_VALUE(Unit*, "team flag carrier");
+    PositionInfo objective = AI_VALUE(PositionMap&, "position")["bg objective"];
+    ObjectGuid best;
+    float bestScore = 0.0f;
+    for (ObjectGuid guid : AI_VALUE(GuidVector, "nearest enemy players"))
+    {
+        Unit* enemy = botAI->GetUnit(guid);
+        if (!enemy || !enemy->IsAlive() || !bot->IsValidAttackTarget(enemy) ||
+            !bot->CanSeeOrDetect(enemy) || !bot->IsWithinLOSInMap(enemy) ||
+            !bot->IsWithinDistInMap(enemy, _control ? 30.0f : 55.0f) ||
+            enemy->HasBreakableByDamageCrowdControlAura())
+            continue;
+        bool capturing = false;
+        for (CurrentSpellTypes type : {CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL})
+            if (Spell* spell = enemy->GetCurrentSpell(type))
+                capturing = capturing || spell->m_spellInfo->Id == SPELL_CAPTURE_BANNER;
+        bool pursuer = teamCarrier && enemy->GetVictim() == teamCarrier;
+        bool healer = enemy->IsPlayer() && PlayerbotAI::IsHeal(enemy->ToPlayer(), true);
+        bool nearObjective = objective.isSet() && enemy->GetDistance2d(objective.x, objective.y) < 35.0f;
+        if (_control && !capturing && !pursuer && enemy != enemyCarrier && !healer && !nearObjective)
+            continue;
+        float score = capturing ? 3000.0f : enemy == enemyCarrier ? 2000.0f : pursuer ? 1500.0f : 100.0f;
+        score += std::min(assists[guid], 5u) * 120.0f + (100.0f - enemy->GetHealthPct()) * 2.0f;
+        if (healer)
+            score += _control ? 800.0f : 80.0f;
+        if (nearObjective)
+            score += 150.0f;
+        score -= bot->GetDistance2d(enemy);
+        if (score > bestScore || (score == bestScore && guid < best))
+        {
+            best = guid;
+            bestScore = score;
+        }
+    }
+    if (!_control && RealBgType(bot) == BATTLEGROUND_SA)
+    {
+        auto* strand = static_cast<BattlegroundSA*>(bg);
+        if (strand->GetAttackerTeam() != bot->GetTeamId())
+            for (uint32 index = BG_SA_DEMOLISHER_1; index <= BG_SA_DEMOLISHER_8; ++index)
+                if (Creature* vehicle = bg->GetBgMap()->GetCreature(bg->BgCreatures[index]))
+                    if (vehicle->IsAlive() && bot->IsValidAttackTarget(vehicle) &&
+                        bot->IsWithinDistInMap(vehicle, 45.0f) && bot->IsWithinLOSInMap(vehicle))
+                    {
+                        float score = 2500.0f - vehicle->GetHealthPct() - bot->GetDistance2d(vehicle);
+                        if (score > bestScore)
+                        {
+                            best = vehicle->GetGUID();
+                            bestScore = score;
+                        }
+                    }
+    }
+    return best;
 }
 
 std::vector<CreatureData const*> BgMastersValue::Calculate()

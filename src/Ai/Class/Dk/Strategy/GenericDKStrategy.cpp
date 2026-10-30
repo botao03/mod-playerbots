@@ -53,11 +53,19 @@ void GenericDKStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     MeleeCombatStrategy::InitTriggers(triggers);
 
+    triggers.push_back(new TriggerNode("death grip pvp", { NextAction("death grip", ACTION_MOVE + 1) }));
+    triggers.push_back(new TriggerNode("chains of ice", { NextAction("chains of ice", ACTION_HIGH + 2) }));
+    triggers.push_back(new TriggerNode("strangulate", { NextAction("strangulate", ACTION_INTERRUPT + 1) }));
+    triggers.push_back(new TriggerNode("strangulate on enemy healer",
+        { NextAction("strangulate on enemy healer", ACTION_INTERRUPT + 1) }));
+    triggers.push_back(new TriggerNode("anti magic shell",
+        { NextAction("anti magic shell", ACTION_EMERGENCY + 1) }));
+
     triggers.push_back(
-        new TriggerNode("mind freeze", { NextAction("mind freeze", ACTION_HIGH + 1) }));
+        new TriggerNode("mind freeze", { NextAction("mind freeze", ACTION_INTERRUPT + 2) }));
     triggers.push_back(
         new TriggerNode("mind freeze on enemy healer",
-                        { NextAction("mind freeze on enemy healer", ACTION_HIGH + 1) }));
+                        { NextAction("mind freeze on enemy healer", ACTION_INTERRUPT + 2) }));
     triggers.push_back(new TriggerNode(
         "horn of winter", { NextAction("horn of winter", ACTION_NORMAL + 1) }));
     triggers.push_back(new TriggerNode("critical health",

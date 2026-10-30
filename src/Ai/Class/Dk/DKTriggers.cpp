@@ -8,7 +8,37 @@
 #include "GenericTriggers.h"
 #include "Playerbots.h"
 #include "SharedDefines.h"
+#include "Spell.h"
+#include "SpellInfo.h"
 #include <string>
+
+bool DeathGripPvpTrigger::IsActive()
+{
+    Unit* target = GetTarget();
+    return target && target->IsPlayer() && !bot->IsWithinMeleeRange(target);
+}
+
+bool ChainsOfIceSnareTrigger::IsActive()
+{
+    Unit* target = GetTarget();
+    return target && target->IsPlayer() && !bot->IsWithinMeleeRange(target) &&
+        !target->HasAuraType(SPELL_AURA_MOD_ROOT) && !target->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) &&
+        DebuffTrigger::IsActive();
+}
+
+bool AntiMagicShellTrigger::IsActive()
+{
+    Unit* target = GetTarget();
+    if (!target)
+        return false;
+
+    Spell* spell = target->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+    if (!spell)
+        spell = target->GetCurrentSpell(CURRENT_CHANNELED_SPELL);
+    return spell && spell->GetSpellInfo() && !spell->GetSpellInfo()->IsPositive() &&
+           spell->m_targets.GetUnitTargetGUID() == bot->GetGUID() &&
+           (spell->GetSpellInfo()->GetSchoolMask() & SPELL_SCHOOL_MASK_MAGIC);
+}
 
 bool DKPresenceTrigger::IsActive()
 {

@@ -126,6 +126,8 @@ public:
     bool ForceRebuffOnReadyCheck;
     uint32 ForceRebuffMarginSecs;
     bool AutoAvoidAoe;
+    bool PvpCombatTactics;
+    bool PvpUseEngineeringItems;
     float MaxAoeAvoidRadius;
     std::set<uint32> AoeAvoidSpellWhitelist;
     bool TellWhenAvoidAoe;
@@ -253,6 +255,8 @@ public:
 
     bool RandomBotJoinBG;
     bool RandomBotAutoJoinBG;
+    bool CleanupEmptyInstances;
+    uint32 EmptyInstanceGraceSeconds;
 
     std::string RandomBotAutoJoinICBrackets;
     std::string RandomBotAutoJoinEYBrackets;
@@ -355,6 +359,11 @@ public:
     ShowHideCosmetic RandomBotShowHelmet;
     ShowHideCosmetic RandomBotShowCloak;
     bool RandomBotFixedLevel;
+    bool PopulationEnabled;
+    uint32 PopulationWorldCount, PopulationActivityLimit, PopulationMinPerZone;
+    uint32 PopulationBattlegroundEpicPercent;
+    uint32 PopulationOperationInterval, PopulationActivityOperationInterval, PopulationLogoutInterval;
+    bool PopulationNearbySpawns, CoordinatedBattlegrounds;
     bool DisableRandomLevels;
     float RandomBotXPRate;
     uint32 RandomBotAllianceRatio;

@@ -57,6 +57,26 @@ public:
     BattlegroundTypeId Calculate() override;
 };
 
+class BattlegroundProtectedControlValue : public ObjectGuidListCalculatedValue
+{
+public:
+    BattlegroundProtectedControlValue(PlayerbotAI* botAI)
+        : ObjectGuidListCalculatedValue(botAI, "bg protected crowd control", IN_MILLISECONDS) {}
+    GuidVector Calculate() override;
+};
+
+class BattlegroundTargetValue : public ObjectGuidCalculatedValue
+{
+public:
+    BattlegroundTargetValue(PlayerbotAI* botAI, bool control = false)
+        : ObjectGuidCalculatedValue(botAI, control ? "bg control target" : "bg focus target", IN_MILLISECONDS),
+          _control(control) {}
+    ObjectGuid Calculate() override;
+
+private:
+    bool _control;
+};
+
 class FlagCarrierValue : public UnitCalculatedValue
 {
 public:

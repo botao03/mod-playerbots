@@ -4,6 +4,7 @@
  * or (at your option) any later version.
  */
 
+#include "BotPopulation.h"
 #include "ChooseTravelTargetAction.h"
 #include "ChatHelper.h"
 #include "LootObjectStack.h"
@@ -30,6 +31,8 @@ bool ChooseTravelTargetAction::Execute(Event /*event*/)
     if (!newTarget.isActive() && !newTarget.isForced())
         return false;
 
+    if (!IsPopulationTravelAllowed(bot, *newTarget.getPosition()))
+        return false;
     setNewTarget(&newTarget, oldTarget);
     return true;
 }
@@ -355,6 +358,11 @@ bool ChooseTravelTargetAction::getBestDestination(std::vector<TravelDestination*
     if (activeDestinations->empty() || activePoints->empty())  // No targets or no points.
         return false;
 
+    if (GetBotPopulation(bot))
+        activePoints->erase(std::remove_if(activePoints->begin(), activePoints->end(), [&](WorldPosition* point)
+        {
+            return !point || !IsPopulationTravelAllowed(bot, *point);
+        }), activePoints->end());
     WorldPosition botLocation(bot);
     std::vector<WorldPosition*> availablePoints =
         TravelMgr::instance().getNextPoint(&botLocation, *activePoints);  // Pick a good point.

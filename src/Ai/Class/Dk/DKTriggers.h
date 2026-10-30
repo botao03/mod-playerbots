@@ -115,6 +115,20 @@ public:
     MindFreezeInterruptSpellTrigger(PlayerbotAI* botAI) : InterruptSpellTrigger(botAI, "mind freeze") {}
 };
 
+class DeathGripPvpTrigger : public SpellTrigger
+{
+public:
+    DeathGripPvpTrigger(PlayerbotAI* botAI) : SpellTrigger(botAI, "death grip") {}
+    bool IsActive() override;
+};
+
+class AntiMagicShellTrigger : public SpellTrigger
+{
+public:
+    AntiMagicShellTrigger(PlayerbotAI* botAI) : SpellTrigger(botAI, "anti magic shell") {}
+    bool IsActive() override;
+};
+
 class StrangulateInterruptSpellTrigger : public InterruptSpellTrigger
 {
 public:
@@ -133,10 +147,11 @@ public:
     MindFreezeOnEnemyHealerTrigger(PlayerbotAI* botAI) : InterruptEnemyHealerTrigger(botAI, "mind freeze") {}
 };
 
-class ChainsOfIceSnareTrigger : public SnareTargetTrigger
+class ChainsOfIceSnareTrigger : public DebuffTrigger
 {
 public:
-    ChainsOfIceSnareTrigger(PlayerbotAI* botAI) : SnareTargetTrigger(botAI, "chains of ice") {}
+    ChainsOfIceSnareTrigger(PlayerbotAI* botAI) : DebuffTrigger(botAI, "chains of ice") {}
+    bool IsActive() override;
 };
 
 class StrangulateOnEnemyHealerTrigger : public InterruptEnemyHealerTrigger

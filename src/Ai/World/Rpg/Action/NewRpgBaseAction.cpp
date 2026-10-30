@@ -5,6 +5,7 @@
  */
 
 #include "NewRpgBaseAction.h"
+#include "BotPopulation.h"
 #include "BroadcastHelper.h"
 #include "ChatHelper.h"
 #include "Creature.h"
@@ -40,6 +41,8 @@
 
 bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
 {
+    if (!IsPopulationTravelAllowed(bot, dest))
+        return false;
     if (dest == WorldPosition())
         return false;
 
@@ -993,6 +996,8 @@ WorldPosition NewRpgBaseAction::SelectRandomGrindPos(Player* bot)
 
     for (auto& loc : locs)
     {
+        if (!IsPopulationTravelAllowed(bot, loc))
+            continue;
         if (bot->GetMapId() != loc.GetMapId())
             continue;
 
@@ -1045,6 +1050,8 @@ WorldPosition NewRpgBaseAction::SelectRandomCampPos(Player* bot)
     std::vector<WorldLocation> prepared_locs;
     for (auto& loc : locs)
     {
+        if (!IsPopulationTravelAllowed(bot, loc))
+            continue;
         if (bot->GetMapId() != loc.GetMapId())
             continue;
 
@@ -1075,6 +1082,8 @@ WorldPosition NewRpgBaseAction::SelectRandomCampPos(Player* bot)
 
 bool NewRpgBaseAction::SelectRandomFlightTaxiNode(uint32& flightMasterEntry, WorldPosition& flightMasterPos, std::vector<uint32>& path)
 {
+    if (GetBotPopulation(bot))
+        return false;
     TravelMgr::FlightMasterInfo const* info = sTravelMgr.GetNearestFlightMasterInfo(bot);
     if (!info)
         return false;

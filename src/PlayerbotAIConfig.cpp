@@ -163,6 +163,8 @@ bool PlayerbotAIConfig::Initialize()
         "Playerbots.MissingBuffReagentMessageCooldown", 300);
     ForceRebuffOnReadyCheck = sConfigMgr->GetOption<bool>("Playerbots.ForceRebuffOnReadyCheck", false);
     ForceRebuffMarginSecs = std::min(sConfigMgr->GetOption<uint32>("Playerbots.ForceRebuffMarginSecs", 60), 3600u);
+    PvpCombatTactics = sConfigMgr->GetOption<bool>("Playerbots.PvpCombatTactics", false);
+    PvpUseEngineeringItems = sConfigMgr->GetOption<bool>("Playerbots.PvpUseEngineeringItems", false);
     AutoAvoidAoe = sConfigMgr->GetOption<bool>("Playerbots.AutoAvoidAoe", true);
     MaxAoeAvoidRadius = sConfigMgr->GetOption<float>("Playerbots.MaxAoeAvoidRadius", 15.0f);
     LoadSet<std::set<uint32>>(sConfigMgr->GetOption<std::string>("Playerbots.AoeAvoidSpellWhitelist", "50759,57491,13810,29946"),
@@ -385,6 +387,13 @@ bool PlayerbotAIConfig::Initialize()
 
     RandomBotJoinBG = sConfigMgr->GetOption<bool>("Playerbots.RandomBotJoinBG", true);
     RandomBotAutoJoinBG = sConfigMgr->GetOption<bool>("Playerbots.RandomBotAutoJoinBG", false);
+    CleanupEmptyInstances = sConfigMgr->GetOption<bool>("Playerbots.CleanupEmptyInstances", false);
+    EmptyInstanceGraceSeconds = sConfigMgr->GetOption<uint32>("Playerbots.EmptyInstanceGraceSeconds", 60);
+    if (CleanupEmptyInstances && RandomBotAutoJoinBG)
+    {
+        LOG_WARN("playerbots", "Disabling autonomous battleground creation while empty-instance cleanup is enabled");
+        RandomBotAutoJoinBG = false;
+    }
 
     RandomBotAutoJoinArenaBracket = sConfigMgr->GetOption<int32>("Playerbots.RandomBotAutoJoinArenaBracket", 14);
 
@@ -629,6 +638,20 @@ bool PlayerbotAIConfig::Initialize()
     EnableGreet = sConfigMgr->GetOption<bool>("Playerbots.EnableGreet", true);
     SummonWhenGroup = sConfigMgr->GetOption<bool>("Playerbots.SummonWhenGroup", true);
     RandomBotFixedLevel = sConfigMgr->GetOption<bool>("Playerbots.RandomBotFixedLevel", false);
+    PopulationEnabled = sConfigMgr->GetOption<bool>("Playerbots.Population.Enabled", false);
+    PopulationWorldCount = sConfigMgr->GetOption<uint32>("Playerbots.Population.WorldCount", 50);
+    PopulationActivityLimit = sConfigMgr->GetOption<uint32>("Playerbots.Population.ActivityLimit", 200);
+    PopulationMinPerZone = std::max(1u, sConfigMgr->GetOption<uint32>("Playerbots.Population.MinPerZone", 5));
+    PopulationBattlegroundEpicPercent = std::min(100u,
+        sConfigMgr->GetOption<uint32>("Playerbots.Population.BattlegroundEpicPercent", 60));
+    PopulationOperationInterval = std::max(5u,
+        sConfigMgr->GetOption<uint32>("Playerbots.Population.OperationInterval", 15));
+    PopulationActivityOperationInterval = std::max(5u,
+        sConfigMgr->GetOption<uint32>("Playerbots.Population.ActivityOperationInterval", 5));
+    PopulationNearbySpawns = sConfigMgr->GetOption<bool>("Playerbots.Population.NearbySpawns", false);
+    CoordinatedBattlegrounds = sConfigMgr->GetOption<bool>("Playerbots.CoordinatedBattlegrounds", false);
+    PopulationLogoutInterval = std::max(5u,
+        sConfigMgr->GetOption<uint32>("Playerbots.Population.LogoutInterval", 10));
     DisableRandomLevels = sConfigMgr->GetOption<bool>("Playerbots.DisableRandomLevels", false);
     RandomBotRandomPassword = sConfigMgr->GetOption<bool>("Playerbots.RandomBotRandomPassword", true);
     DowngradeMaxLevelBot = sConfigMgr->GetOption<bool>("Playerbots.DowngradeMaxLevelBot", true);

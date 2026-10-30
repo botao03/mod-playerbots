@@ -30,6 +30,8 @@ inline bool compareByHealth(Unit const* u1, Unit const* u2) { return u1->GetHeal
 Unit* PartyMemberToHeal::Calculate()
 {
     IsTargetOfHealingSpell predicate;
+    Unit* carrier = sPlayerbotAIConfig.CoordinatedBattlegrounds && bot->InBattleground()
+        ? AI_VALUE(Unit*, "team flag carrier") : nullptr;
 
     Group* group = bot->GetGroup();
     if (!group)
@@ -87,6 +89,8 @@ Unit* PartyMemberToHeal::Calculate()
                 {
                     probeValue = health + player->GetDistance2d(bot) / 10.0f;
                 }
+                if (player == carrier && health < 80.0f && player->GetDistance2d(bot) < sPlayerbotAIConfig.HealDistance)
+                    probeValue -= 20.0f;
                 // delay Check player to here for better performance
                 if (probeValue < calc.minValue && Check(player))
                 {

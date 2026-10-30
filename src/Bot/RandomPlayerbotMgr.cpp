@@ -298,6 +298,13 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
         ScaleBotActivity();
     }*/
 
+    if (sPlayerbotAIConfig.PopulationEnabled)
+    {
+        SetNextCheckDelay(5 * IN_MILLISECONDS);
+        UpdatePopulation();
+        return;
+    }
+
     uint32 maxAllowedBotCount = GetEventValue(0, "bot_count");
     if (!maxAllowedBotCount || (maxAllowedBotCount < sPlayerbotAIConfig.MinRandomBots ||
                                 maxAllowedBotCount > sPlayerbotAIConfig.MaxRandomBots))
@@ -549,10 +556,12 @@ void RandomPlayerbotMgr::AssignAccountTypes()
     if (sPlayerbotAIConfig.MaxRandomBots > 0)
     {
         int divisor = RandomPlayerbotFactory::CalculateAvailableCharsPerAccount();
-        int maxBots = sPlayerbotAIConfig.MaxRandomBots;
+        int maxBots = sPlayerbotAIConfig.PopulationEnabled
+            ? sPlayerbotAIConfig.PopulationWorldCount + sPlayerbotAIConfig.PopulationActivityLimit
+            : sPlayerbotAIConfig.MaxRandomBots;
 
         // Take periodic online-offline into account
-        if (sPlayerbotAIConfig.EnablePeriodicOnlineOffline)
+        if (!sPlayerbotAIConfig.PopulationEnabled && sPlayerbotAIConfig.EnablePeriodicOnlineOffline)
         {
             maxBots *= sPlayerbotAIConfig.PeriodicOnlineOfflineRatio;
         }
@@ -1490,6 +1499,8 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
 
 bool RandomPlayerbotMgr::ProcessBot(Player* bot)
 {
+    if (GetBotPopulation(bot))
+        return false;
 
     PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
     if (!botAI)
@@ -1622,6 +1633,8 @@ void RandomPlayerbotMgr::Revive(Player* player)
 
 void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation>& locs, bool hearth)
 {
+    if (GetBotPopulation(bot))
+        return;
     // ignore when alrdy teleported or not in the world yet.
     if (bot->IsBeingTeleported() || !bot->IsInWorld())
         return;
@@ -1830,6 +1843,8 @@ void RandomPlayerbotMgr::InitArenaTeams()
 
 void RandomPlayerbotMgr::RandomTeleportForLevel(Player* bot)
 {
+    if (GetBotPopulation(bot))
+        return;
     if (bot->InBattleground())
         return;
 
@@ -1926,6 +1941,8 @@ std::vector<WorldLocation> RandomPlayerbotMgr::GetPlayerZoneTeleportLocations(st
 
 void RandomPlayerbotMgr::RandomTeleportGrindForLevel(Player* bot)
 {
+    if (GetBotPopulation(bot))
+        return;
     if (bot->InBattleground())
         return;
 
@@ -2668,6 +2685,19 @@ void RandomPlayerbotMgr::OnPlayerLogout(Player* player)
 
 void RandomPlayerbotMgr::OnBotLoginInternal(Player* const bot)
 {
+    if (sPlayerbotAIConfig.PopulationEnabled)
+    {
+        auto itr = _populationReservations.find(bot->GetGUID().GetCounter());
+        if (itr != _populationReservations.end())
+        {
+            auto* state = new BotPopulationState();
+            state->Assignment = itr->second.Assignment;
+            bot->CustomData.Set(BotPopulationState::Key, state);
+            constexpr uint32 STAGING_PHASE_MASK = 1u << 30;
+            bot->SetPhaseMask(STAGING_PHASE_MASK, true);
+            return;
+        }
+    }
     if (_isBotLogging)
     {
         LOG_INFO("playerbots", "{}/{} Bot {} logged in", playerBots.size(),
@@ -3164,6 +3194,8 @@ void RandomPlayerbotMgr::ChangeStrategyOnce(Player* player)
 
 void RandomPlayerbotMgr::RandomTeleportForRpg(Player* bot)
 {
+    if (GetBotPopulation(bot))
+        return;
     uint32 race = bot->getRace();
     uint32 level = bot->GetLevel();
     LOG_DEBUG("playerbots", "Random teleporting bot {} for RPG ({} locations available)", bot->GetName().c_str(),

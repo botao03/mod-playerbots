@@ -4,6 +4,7 @@
  * or (at your option) any later version.
  */
 
+#include "BotPopulation.h"
 #include "EquipAction.h"
 #include "Event.h"
 #include "ItemCountValue.h"
@@ -368,6 +369,10 @@ ItemIds EquipAction::SelectInventoryItemsToEquip()
 
 bool EquipUpgradesPacketAction::Execute(Event event)
 {
+    if (BotPopulationState const* population = GetBotPopulation(bot))
+        if (population->Assignment.Purpose == BotPopulationPurpose::Battleground ||
+            population->Assignment.Purpose == BotPopulationPurpose::Arena)
+            return false;
     if (!sPlayerbotAIConfig.AutoEquipUpgradeLoot && !sRandomPlayerbotMgr.IsRandomBot(bot))
         return false;
     std::string const source = event.GetSource();
@@ -410,6 +415,10 @@ bool EquipUpgradesPacketAction::Execute(Event event)
 
 bool EquipUpgradeAction::Execute(Event /*event*/)
 {
+    if (BotPopulationState const* population = GetBotPopulation(bot))
+        if (population->Assignment.Purpose == BotPopulationPurpose::Battleground ||
+            population->Assignment.Purpose == BotPopulationPurpose::Arena)
+            return false;
     ItemIds items = SelectInventoryItemsToEquip();
     EquipItems(items);
     return true;

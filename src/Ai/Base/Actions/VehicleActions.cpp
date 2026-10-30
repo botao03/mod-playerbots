@@ -6,6 +6,7 @@
 
 #include "VehicleActions.h"
 #include "BattlegroundIC.h"
+#include "BattlegroundSA.h"
 #include "ItemVisitors.h"
 #include "ObjectDefines.h"
 #include "Playerbots.h"
@@ -45,6 +46,11 @@ bool EnterVehicleAction::Execute(Event event)
     {
         Unit* vehicleBase = botAI->GetUnit(*i);
         if (!vehicleBase)
+            continue;
+
+        if (sPlayerbotAIConfig.CoordinatedBattlegrounds && bot->GetBattleground() &&
+            bot->GetBattleground()->GetBgTypeID(true) == BATTLEGROUND_SA &&
+            vehicleBase->GetEntry() != NPC_DEMOLISHER_SA)
             continue;
 
         if (vehicleBase->HasUnitFlag(UNIT_FLAG_NOT_SELECTABLE))

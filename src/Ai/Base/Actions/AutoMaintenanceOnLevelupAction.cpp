@@ -4,6 +4,7 @@
  * or (at your option) any later version.
  */
 
+#include "BotPopulation.h"
 #include "AutoMaintenanceOnLevelupAction.h"
 #include "BroadcastHelper.h"
 #include "PlayerbotAIConfig.h"
@@ -160,6 +161,8 @@ std::string const AutoMaintenanceOnLevelupAction::FormatSpell(SpellInfo const* s
 
 void AutoMaintenanceOnLevelupAction::AutoUpgradeEquip()
 {
+    if (GetBotPopulation(bot))
+        return;
     if (!sRandomPlayerbotMgr.IsRandomBot(bot))
         return;
 

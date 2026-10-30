@@ -11,6 +11,19 @@
 
 class PlayerbotAI;
 
+class PvpBreakRootAction : public Action
+{
+public:
+    PvpBreakRootAction(PlayerbotAI* botAI) : Action(botAI, "pvp break root") {}
+    bool isUseful() override;
+    bool isPossible() override;
+    bool Execute(Event event) override;
+    bool ShouldReactionInterruptCast() const override { return true; }
+
+private:
+    uint32 GetFormSpell();
+};
+
 class CastBearFormAction : public CastBuffSpellAction
 {
 public:

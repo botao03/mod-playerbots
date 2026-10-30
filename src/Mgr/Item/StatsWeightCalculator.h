@@ -27,7 +27,7 @@ enum StatsOverflowThreshold
 class StatsWeightCalculator
 {
 public:
-    StatsWeightCalculator(Player* player);
+    StatsWeightCalculator(Player* player, int32 talentTab = -1);
     void Reset();
     float CalculateItem(uint32 itemId, int32 randomPropertyId = 0, int32 slot = -1);
     float CalculateEnchant(uint32 enchantId);

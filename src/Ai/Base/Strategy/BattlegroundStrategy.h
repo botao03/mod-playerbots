@@ -8,6 +8,7 @@
 #define PLAYERBOTS_BATTLEGROUNDSTRATEGY_H
 
 #include "PassThroughStrategy.h"
+#include "Multiplier.h"
 
 class BGStrategy : public PassThroughStrategy
 {
@@ -77,6 +78,32 @@ public:
     uint32 GetType() const override { return STRATEGY_TYPE_GENERIC; }
     void InitTriggers(std::vector<TriggerNode*>& triggers) override;
     std::string const getName() override { return "isle"; }
+};
+
+class CoordinatedBattlegroundStrategy : public Strategy
+{
+public:
+    CoordinatedBattlegroundStrategy(PlayerbotAI* botAI) : Strategy(botAI) {}
+    void InitTriggers(std::vector<TriggerNode*>& triggers) override;
+    std::string const getName() override { return "bg coordination"; }
+    bool HasTargetExclusions() const override { return true; }
+    void AppendTargetExclusions(GuidSet& exclusions, TargetValueExclusionType type) override;
+    void InitMultipliers(std::vector<Multiplier*>& multipliers) override;
+};
+
+class BattlegroundCoordinationMultiplier : public Multiplier
+{
+public:
+    BattlegroundCoordinationMultiplier(PlayerbotAI* botAI) : Multiplier(botAI, "bg coordination") {}
+    float GetValue(Action* action) override;
+};
+
+class StrandStrategy : public Strategy
+{
+public:
+    StrandStrategy(PlayerbotAI* botAI) : Strategy(botAI) {}
+    void InitTriggers(std::vector<TriggerNode*>& triggers) override;
+    std::string const getName() override { return "strand"; }
 };
 
 class ArenaStrategy : public Strategy

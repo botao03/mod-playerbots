@@ -7,10 +7,14 @@
 #include "BattleGroundTactics.h"
 #include "Chat.h"
 #include "GuildTaskMgr.h"
+#include "Log.h"
 #include "PerfMonitor.h"
+#include "PlayerbotFactory.h"
 #include "PlayerbotMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
+#include "WorldSession.h"
+#include <sstream>
 
 using namespace Acore::ChatCommands;
 
@@ -26,14 +30,14 @@ public:
         };
 
         static ChatCommandTable playerbotsAccountCommandTable = {
-            {"setKey", HandleSetSecurityKeyCommand, SEC_PLAYER, Console::No},
-            {"link", HandleLinkAccountCommand, SEC_PLAYER, Console::No},
-            {"linkedAccounts", HandleViewLinkedAccountsCommand, SEC_PLAYER, Console::No},
-            {"unlink", HandleUnlinkAccountCommand, SEC_PLAYER, Console::No},
+            {"setKey", HandleSetSecurityKeyCommand, SEC_MODERATOR, Console::No},
+            {"link", HandleLinkAccountCommand, SEC_MODERATOR, Console::No},
+            {"linkedAccounts", HandleViewLinkedAccountsCommand, SEC_MODERATOR, Console::No},
+            {"unlink", HandleUnlinkAccountCommand, SEC_MODERATOR, Console::No},
         };
 
         static ChatCommandTable playerbotsCommandTable = {
-            {"bot", HandlePlayerbotCommand, SEC_PLAYER, Console::No},
+            {"bot", HandlePlayerbotCommand, SEC_MODERATOR, Console::No},
             {"gtask", HandleGuildTaskCommand, SEC_GAMEMASTER, Console::Yes},
             {"pmon", HandlePerfMonCommand, SEC_GAMEMASTER, Console::Yes},
             {"rndbot", HandleRandomPlayerbotCommand, SEC_GAMEMASTER, Console::Yes},
@@ -43,9 +47,67 @@ public:
 
         static ChatCommandTable commandTable = {
             {"playerbots", playerbotsCommandTable},
+            {"pvpequip", HandlePvpEquipCommand, SEC_GAMEMASTER, Console::No},
+            {"pveequip", HandlePveEquipCommand, SEC_GAMEMASTER, Console::No},
         };
 
         return commandTable;
+    }
+
+    static bool HandleEquipCommand(ChatHandler* handler, char const* args, bool pvp)
+    {
+        int32 talentTree = 0;
+        if (args && *args)
+        {
+            std::istringstream arguments(args);
+            std::string extra;
+            if (!(arguments >> talentTree) || talentTree < 1 || talentTree > 3 || (arguments >> extra))
+            {
+                handler->SendSysMessage("用法：.pvpequip [1-3] 或 .pveequip [1-3]，数字表示天赋树序号。");
+                return false;
+            }
+        }
+        Player* target = handler->GetPlayer()->GetSelectedPlayer();
+        if (!target || !target->IsInWorld() || !target->GetSession())
+        {
+            handler->SendSysMessage("请先选中一个在线玩家角色。");
+            return false;
+        }
+        if (handler->HasLowerSecurity(target))
+            return false;
+        if (!target->IsAlive() || target->IsInCombat() || target->GetTradeData() || target->IsInFlight() ||
+            target->IsBeingTeleported() || target->GetSession()->IsLoggingOut() || target->InBattleground() ||
+            target->GetVehicle())
+        {
+            handler->SendSysMessage("目标必须存活、脱离战斗，且不能正在交易、飞行、传送、退出，"
+                                    "或处于战场和载具中。");
+            return false;
+        }
+
+        std::string result;
+        PlayerbotFactory factory(target, target->GetLevel());
+        if (!factory.ResetLoadout(pvp, result, talentTree))
+        {
+            handler->SendSysMessage(result);
+            return false;
+        }
+        LOG_INFO("playerbots", "GM {} reset loadout of {} ({}) using {}",
+            handler->GetPlayer()->GetName(), target->GetName(), target->GetGUID().ToString(), result);
+        handler->PSendSysMessage("{}：已应用 {}，旧装备、背包、银行和邮箱已清空，"
+                                 "金币设为 10000 金，武器、骑术、急救、钓鱼和烹饪已补至可学上限，"
+                                 "已补齐职业任务技能、训练师技能、种族陆地坐骑、阵营飞行坐骑和天赋雕文。",
+            target->GetName(), result);
+        return true;
+    }
+
+    static bool HandlePvpEquipCommand(ChatHandler* handler, char const* args)
+    {
+        return HandleEquipCommand(handler, args, true);
+    }
+
+    static bool HandlePveEquipCommand(ChatHandler* handler, char const* args)
+    {
+        return HandleEquipCommand(handler, args, false);
     }
 
     static bool HandlePlayerbotCommand(ChatHandler* handler, char const* args)

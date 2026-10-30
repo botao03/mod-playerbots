@@ -4,6 +4,8 @@
  * or (at your option) any later version.
  */
 
+#include "ActivityReplacement.h"
+#include "BotPopulation.h"
 #include "LfgActions.h"
 #include "AiFactory.h"
 #include "ItemVisitors.h"
@@ -43,6 +45,9 @@ bool LfgJoinAction::Execute(Event /*event*/) { return JoinLFG(); }
 
 uint32 LfgJoinAction::GetRoles()
 {
+    if (BotPopulationState const* population = GetBotPopulation(bot))
+        if (population->Assignment.Purpose == BotPopulationPurpose::Dungeon)
+            return population->Assignment.Role;
     if (!RandomPlayerbotMgr::instance().IsRandomBot(bot))
     {
         if (PlayerbotAI::IsTank(bot))
@@ -125,6 +130,12 @@ bool LfgJoinAction::JoinLFG()
     std::vector<uint32> selected;
 
     std::vector<uint32> dungeons = RandomPlayerbotMgr::instance().LfgDungeons[bot->GetTeamId()];
+    if (BotPopulationState const* population = GetBotPopulation(bot))
+    {
+        if (!population->Ready || population->Assignment.Purpose != BotPopulationPurpose::Dungeon)
+            return false;
+        dungeons.assign(population->Assignment.Dungeons.begin(), population->Assignment.Dungeons.end());
+    }
     if (!dungeons.size())
         return false;
 
@@ -181,6 +192,8 @@ bool LfgJoinAction::JoinLFG()
     // JoinLfg is not threadsafe, so make packet and queue into session
     // sLFGMgr->JoinLfg(bot, roleMask, list, _gs);
 
+    // The login/level cache predates bot gearing and unbinding; refresh it on the world thread before joining.
+    bot->GetSession()->QueuePacket(new WorldPacket(CMSG_LFD_PLAYER_LOCK_INFO_REQUEST));
     WorldPacket* data = new WorldPacket(CMSG_LFG_JOIN);
     *data << (uint32)roleMask;
     *data << (bool)false;
@@ -341,6 +354,15 @@ bool LfgTeleportAction::Execute(Event event)
 
 bool LfgJoinAction::isUseful()
 {
+    if (sPlayerbotAIConfig.PopulationEnabled)
+    {
+        BotPopulationState const* population = GetBotPopulation(bot);
+        if (!population || !population->Ready || population->Assignment.Purpose != BotPopulationPurpose::Dungeon)
+            return false;
+        if (population->Assignment.Dungeons.empty() ||
+            IsActivityReplacementExcluded(population->Assignment, bot->GetGUID()))
+            return false;
+    }
     if (!sPlayerbotAIConfig.RandomBotJoinLfg)
     {
         // botAI->ChangeStrategy("-lfg", BOT_STATE_NON_COMBAT);

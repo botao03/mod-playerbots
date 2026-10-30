@@ -9,7 +9,8 @@
 
 void LfgStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("random", { NextAction("lfg join", relevance) }));
+    triggers.push_back(new TriggerNode(sPlayerbotAIConfig.PopulationEnabled ? "population queue ready" : "random",
+        {NextAction("lfg join", relevance)}));
     triggers.push_back(
         new TriggerNode("seldom", { NextAction("lfg leave", relevance) }));
     triggers.push_back(new TriggerNode(

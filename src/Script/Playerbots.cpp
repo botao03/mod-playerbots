@@ -4,7 +4,10 @@
  * or (at your option) any later version.
  */
 
+#include "ActivityReplacement.h"
+#include "BotPopulation.h"
 #include "Playerbots.h"
+#include "EmptyInstanceCleanup.h"
 #include "BattleGroundTactics.h"
 #include "BattlefieldScript.h"
 #include "Channel.h"
@@ -18,6 +21,7 @@
 #include "AllMapScript.h"
 #include "GatherNodeMgr.h"
 #include "GlobalScript.h"
+#include "GroupMgr.h"
 #include "GuildTaskMgr.h"
 #include "PlayerScript.h"
 #include "PlayerbotAIConfig.h"
@@ -30,6 +34,8 @@
 #include "ServerScript.h"
 #include "SessionScript.h"
 #include "WorldScript.h"
+#include "WorldSession.h"
+#include "WorldTelemetry.h"
 #include "cmath"
 
 class PlayerbotsDatabaseScript : public DatabaseScript
@@ -173,6 +179,8 @@ public:
 
     void OnPlayerBeforeLogout(Player* player) override
     {
+        RemoveWorldTelemetry(player);
+
         if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))
         {
             PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
@@ -258,12 +266,17 @@ public:
         {
             playerbotMgr->UpdateAI(diff);
         }
+
+        SampleWorldTelemetry(player, diff);
     }
 
     using PlayerScript::OnPlayerCanUseChat;  // keep the base overloads visible
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 lang, std::string& msg, Player* receiver) override
     {
+        if (player->GetSession()->GetSecurity() < SEC_MODERATOR)
+            return true;
+
         if (type != CHAT_MSG_WHISPER || lang == LANG_ADDON)
         {
             return true;
@@ -289,6 +302,9 @@ public:
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 lang, std::string& msg, Group* group) override
     {
+        if (player->GetSession()->GetSecurity() < SEC_MODERATOR)
+            return true;
+
         // Addon traffic (DBM, Carbonite, ...) is no bot command; its text used to trigger item commands like trade.
         if (lang == LANG_ADDON)
             return true;
@@ -313,6 +329,9 @@ public:
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 lang, std::string& msg, Guild* /*guild*/) override
     {
+        if (player->GetSession()->GetSecurity() < SEC_MODERATOR)
+            return true;
+
         if (type != CHAT_MSG_GUILD || lang == LANG_ADDON)
             return true;
 
@@ -339,6 +358,9 @@ public:
 
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 /*lang*/, std::string& msg, Channel* channel) override
     {
+        if (player->GetSession()->GetSecurity() < SEC_MODERATOR)
+            return true;
+
         PlayerbotMgr* const playerbotMgr = PlayerbotsMgr::instance().GetPlayerbotMgr(player);
 
         if (playerbotMgr != nullptr && channel->GetFlags() & 0x18)
@@ -421,6 +443,8 @@ public:
         if (player == nullptr)
             return;
 
+        ObserveActivityKickVote(session, packet);
+
         PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
 
         if (botAI != nullptr)
@@ -460,8 +484,17 @@ class PlayerbotsAllMapScript : public AllMapScript
 {
 public:
     PlayerbotsAllMapScript() : AllMapScript("PlayerbotsAllMapScript", {
-        ALLMAPHOOK_CAN_SEND_OBJECT_UPDATES_TO_PLAYER
+        ALLMAPHOOK_CAN_SEND_OBJECT_UPDATES_TO_PLAYER,
+        ALLMAPHOOK_ON_PLAYER_ENTER_ALL
     }) {}
+
+    void OnPlayerEnterAll(Map* map, Player* player) override
+    {
+        constexpr uint32 STAGING_PHASE_MASK = 1u << 30;
+        if (BotPopulationState const* population = GetBotPopulation(player))
+            if (population->Assignment.Purpose != BotPopulationPurpose::World)
+                player->SetPhaseMask(map->Instanceable() ? PHASEMASK_NORMAL : STAGING_PHASE_MASK, true);
+    }
 
     // Bots have no client to render object updates; only self bots still need them
     bool CanSendObjectUpdatesToPlayer(Map* /*map*/, Player* player) override
@@ -485,6 +518,22 @@ public:
     // Never form a dungeon group made only of bots
     bool CanCreateLfgProposal(lfg::Lfg5Guids const& guids) override
     {
+        if (sPlayerbotAIConfig.Enabled && sPlayerbotAIConfig.CleanupEmptyInstances)
+        {
+            for (ObjectGuid const& guid : guids.guids)
+            {
+                if (guid.IsGroup())
+                {
+                    if (Group* group = sGroupMgr->GetGroupByGUID(guid.GetCounter()))
+                        for (auto const& member : group->GetMemberSlots())
+                            if (IsClientControlledInstancePlayer(ObjectAccessor::FindConnectedPlayer(member.guid)))
+                                return true;
+                }
+                else if (IsClientControlledInstancePlayer(ObjectAccessor::FindConnectedPlayer(guid)))
+                    return true;
+            }
+            return false;
+        }
         for (ObjectGuid const& guid : guids.guids)
         {
             Player* player = ObjectAccessor::FindPlayer(guid);
@@ -530,6 +579,8 @@ public:
 
         sPlayerbotAIConfig.Initialize();
 
+        InitializeWorldTelemetry();
+
         LOG_INFO("server.loading", ">> Loaded playerbots config in {} ms", GetMSTimeDiffToNow(oldMSTime));
         LOG_INFO("server.loading", " ");
 
@@ -547,7 +598,10 @@ public:
         PlayerbotHolder::UpdatePendingLogins();  // Headless sessions whose login holder is in flight
         sRandomPlayerbotMgr.UpdateSessions();  // Per-bot packet queues, world thread only
         PlayerbotWorldThreadProcessor::instance().Update(diff);
+        UpdateActivityReplacements(diff);
         sRandomPlayerbotMgr.UpdateAI(diff);  // World thread only
+        UpdateEmptyInstanceCleanup(diff);
+        UpdateWorldTelemetry(diff);
     }
 
     // Runs before the sessions are kicked on server shutdown
@@ -629,6 +683,8 @@ void AddPlayerbotsScripts()
     new PlayerbotsGlobalScript();
     new PlayerbotsWorldScript();
     new PlayerBotsBGScript();
+    AddEmptyInstanceCleanupScripts();
+    AddActivityReplacementScripts();
     AddPlayerbotsSecureLoginScripts();
     AddPlayerbotsSelfBotAfkScripts();
     AddPlayerbotsCommandscripts();

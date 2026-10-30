@@ -22,6 +22,7 @@
 
 namespace
 {
+constexpr uint32 SPELL_DRUID_THICK_HIDE = 16931;
 constexpr uint32 SPELL_MOLTEN_ARMOR_RANKS[] = { 30482, 43045, 43046 };
 constexpr uint32 SPELL_FEL_ARMOR_RANKS[] = { 28176, 28189, 47892, 47893 };
 constexpr uint32 SPELL_CAREFUL_AIM = 34484;
@@ -47,7 +48,7 @@ bool HasAnySpell(Player* player, uint32 const (&spellIds)[Size])
     return false;
 }
 
-StatsWeightCalculator::StatsWeightCalculator(Player* player) : player_(player)
+StatsWeightCalculator::StatsWeightCalculator(Player* player, int32 talentTab) : player_(player)
 {
     if (PlayerbotAI::IsHeal(player))
         type_ = CollectorType::SPELL_HEAL;
@@ -61,7 +62,45 @@ StatsWeightCalculator::StatsWeightCalculator(Player* player) : player_(player)
         type_ = CollectorType::RANGED;
     cls = player->getClass();
     lvl = player->GetLevel();
-    tab = AiFactory::GetPlayerSpecTab(player);
+    tab = talentTab >= 0 ? talentTab : AiFactory::GetPlayerSpecTab(player);
+    if (talentTab >= 0)
+    {
+        // Explicit loadouts must not inherit a bot's previous strategy or a player's stance.
+        switch (cls)
+        {
+            case CLASS_WARRIOR:
+                type_ = tab == WARRIOR_TAB_PROTECTION ? CollectorType::MELEE_TANK : CollectorType::MELEE_DMG;
+                break;
+            case CLASS_PALADIN:
+                type_ = tab == PALADIN_TAB_HOLY ? CollectorType::SPELL_HEAL
+                    : tab == PALADIN_TAB_PROTECTION ? CollectorType::MELEE_TANK : CollectorType::MELEE_DMG;
+                break;
+            case CLASS_PRIEST:
+                type_ = tab == PRIEST_TAB_SHADOW ? CollectorType::SPELL_DMG : CollectorType::SPELL_HEAL;
+                break;
+            case CLASS_SHAMAN:
+                type_ = tab == SHAMAN_TAB_RESTORATION ? CollectorType::SPELL_HEAL
+                    : tab == SHAMAN_TAB_ENHANCEMENT ? CollectorType::MELEE_DMG : CollectorType::SPELL_DMG;
+                break;
+            case CLASS_DRUID:
+                type_ = tab == DRUID_TAB_RESTORATION ? CollectorType::SPELL_HEAL
+                    : tab == DRUID_TAB_BALANCE ? CollectorType::SPELL_DMG
+                    : player->HasAura(SPELL_DRUID_THICK_HIDE) ? CollectorType::MELEE_TANK : CollectorType::MELEE_DMG;
+                break;
+            case CLASS_DEATH_KNIGHT:
+                type_ = tab == DEATH_KNIGHT_TAB_BLOOD ? CollectorType::MELEE_TANK : CollectorType::MELEE_DMG;
+                break;
+            case CLASS_HUNTER:
+                type_ = CollectorType::RANGED;
+                break;
+            case CLASS_ROGUE:
+                type_ = CollectorType::MELEE_DMG;
+                break;
+            default:
+                type_ = CollectorType::SPELL_DMG;
+                break;
+        }
+    }
     collector_ = std::make_unique<StatsCollector>(type_, cls, lvl);
 
     if (cls == CLASS_DEATH_KNIGHT && tab == DEATH_KNIGHT_TAB_UNHOLY)

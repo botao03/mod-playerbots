@@ -51,6 +51,7 @@
 #include "PetsAction.h"
 #include "PositionAction.h"
 #include "PullActions.h"
+#include "PvpCombatActions.h"
 #include "RandomBotUpdateAction.h"
 #include "ReachTargetActions.h"
 #include "ReleaseSpiritAction.h"
@@ -106,6 +107,10 @@ public:
         creators["gift of the naaru"] = &ActionContext::gift_of_the_naaru;
         creators["shoot"] = &ActionContext::shoot;
         creators["lifeblood"] = &ActionContext::lifeblood;
+        creators["pvp self spell"] = [](PlayerbotAI* botAI) { return new PvpSpellAction(botAI, true); };
+        creators["pvp target spell"] = [](PlayerbotAI* botAI) { return new PvpSpellAction(botAI, false); };
+        creators["pvp trinket"] = [](PlayerbotAI* botAI) { return new PvpUseItemAction(botAI, false); };
+        creators["pvp grenade"] = [](PlayerbotAI* botAI) { return new PvpUseItemAction(botAI, true); };
         creators["arcane torrent"] = &ActionContext::arcane_torrent;
         creators["pull my target"] = &ActionContext::pull_my_target;
         creators["pull rti target"] = &ActionContext::pull_rti_target;
@@ -225,6 +230,8 @@ public:
         creators["bg protect fc"] = &ActionContext::bg_protect_fc;
         creators["bg use buff"] = &ActionContext::bg_use_buff;
         creators["attack enemy flag carrier"] = &ActionContext::attack_enemy_fc;
+        creators["bg focus fire"] = &ActionContext::bg_focus_fire;
+        creators["bg crowd control"] = &ActionContext::bg_crowd_control;
         creators["bg check flag"] = &ActionContext::bg_check_flag;
 
         // Vehicles
@@ -428,6 +435,8 @@ private:
     static Action* bg_check_objective(PlayerbotAI* botAI) { return new BGTactics(botAI, "check objective"); }
     static Action* bg_attack_fc(PlayerbotAI* botAI) { return new BGTactics(botAI, "attack fc"); }
     static Action* bg_protect_fc(PlayerbotAI* botAI) { return new BGTactics(botAI, "protect fc"); }
+    static Action* bg_focus_fire(PlayerbotAI* botAI) { return new BattlegroundFocusAction(botAI); }
+    static Action* bg_crowd_control(PlayerbotAI* botAI) { return new BattlegroundControlAction(botAI); }
     static Action* attack_enemy_fc(PlayerbotAI* botAI) { return new AttackEnemyFlagCarrierAction(botAI); }
     static Action* bg_use_buff(PlayerbotAI* botAI) { return new BGTactics(botAI, "use buff"); }
     static Action* bg_check_flag(PlayerbotAI* botAI) { return new BGTactics(botAI, "check flag"); }

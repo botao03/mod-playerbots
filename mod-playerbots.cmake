@@ -8,3 +8,10 @@
 target_link_libraries(modules
   PRIVATE
     mysql)
+
+# Cache the shared AI headers during large local rebuilds; optional for other toolchains.
+option(PLAYERBOTS_USE_PCH "Precompile playerbot headers for the static modules target" OFF)
+if (PLAYERBOTS_USE_PCH AND MODULES STREQUAL "static")
+  target_precompile_headers(modules PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/src/Script/Playerbots.h")
+endif()

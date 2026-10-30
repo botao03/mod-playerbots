@@ -92,6 +92,22 @@ public:
     bool isUseful() override;
 };
 
+class BattlegroundFocusAction : public AttackAction
+{
+public:
+    BattlegroundFocusAction(PlayerbotAI* botAI) : AttackAction(botAI, "bg focus fire") {}
+    Unit* GetTarget() override;
+    bool isUseful() override;
+};
+
+class BattlegroundControlAction : public Action
+{
+public:
+    BattlegroundControlAction(PlayerbotAI* botAI) : Action(botAI, "bg crowd control") {}
+    bool isUseful() override;
+    bool Execute(Event event) override;
+};
+
 class DropTargetAction : public Action
 {
 public:

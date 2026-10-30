@@ -6,10 +6,15 @@
 
 #include "BattlegroundStrategy.h"
 #include "Playerbots.h"
+#include "BattleGroundTactics.h"
+#include "AttackAction.h"
+#include "Spell.h"
 
 void BGStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode("often", { NextAction("bg join", relevance)}));
+    if (sPlayerbotAIConfig.PopulationEnabled)
+        triggers.push_back(new TriggerNode("population queue ready", {NextAction("bg join", relevance)}));
     triggers.push_back(new TriggerNode("bg invite active", { NextAction("bg status check", relevance)}));
     triggers.push_back(new TriggerNode("timer", { NextAction("bg strategy check", relevance)}));
 }
@@ -83,4 +88,50 @@ void ArenaStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(
         new TriggerNode("no possible targets", { NextAction("arena tactics", ACTION_BG)}));
+}
+
+void CoordinatedBattlegroundStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode("bg active", {NextAction("bg focus fire", ACTION_RAID + 2)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("bg crowd control", ACTION_INTERRUPT + 1)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("bg check flag", ACTION_INTERRUPT + 2)}));
+}
+
+void StrandStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode("timer", {NextAction("enter vehicle", ACTION_BG + 1)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("ram", ACTION_NORMAL + 1)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("hurl boulder", ACTION_NORMAL)}));
+}
+
+void CoordinatedBattlegroundStrategy::InitMultipliers(std::vector<Multiplier*>& multipliers)
+{
+    multipliers.push_back(new BattlegroundCoordinationMultiplier(botAI));
+}
+
+float BattlegroundCoordinationMultiplier::GetValue(Action* action)
+{
+    if (!action || !sPlayerbotAIConfig.CoordinatedBattlegrounds || !bot->InBattleground() || bot->InArena())
+        return 1.0f;
+    if (bot->GetHealthPct() >= 25.0f)
+        for (CurrentSpellTypes type : {CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL})
+            if (Spell* spell = bot->GetCurrentSpell(type))
+                if (spell->m_spellInfo->Id == SPELL_CAPTURE_BANNER)
+                    return dynamic_cast<BGTactics*>(action) ? 1.0f : 0.0f;
+    if (action->getThreatType() == Action::ActionThreatType::Aoe &&
+        !AI_VALUE(GuidVector, "bg protected crowd control").empty())
+        return 0.0f;
+    if (action->getThreatType() != Action::ActionThreatType::None || dynamic_cast<AttackAction*>(action))
+        if (Unit* target = action->GetTarget())
+            if (bot->IsHostileTo(target) && target->HasBreakableByDamageCrowdControlAura())
+                return 0.0f;
+    return 1.0f;
+}
+
+void CoordinatedBattlegroundStrategy::AppendTargetExclusions(GuidSet& exclusions,
+    TargetValueExclusionType /*type*/)
+{
+    GuidVector protectedEnemies = botAI->GetAiObjectContext()
+        ->GetValue<GuidVector>("bg protected crowd control")->Get();
+    exclusions.insert(protectedEnemies.begin(), protectedEnemies.end());
 }

@@ -62,10 +62,13 @@ public:
     static ObjectGuid GetRandomBot();
     static void Init();
     void Refresh();
-    void Randomize(bool incremental);
+    void Randomize(bool incremental, bool force = false);
+    void InitPopulationLoadout(bool pvp, bool arena, uint8 role, bool completeSkills = false);
+    void InitLoadoutSkills();
     static std::list<uint32> classQuestIds;
     void ClearEverything();
-    void InitSkills();
+    void InitSkills(bool equipmentOnly = false);
+    bool ResetLoadout(bool pvp, std::string& result, uint32 talentTree = 0);
 
     static uint32 tradeSkills[];
     static float CalculateEnchantScore(uint32 enchant_id, Player* bot);
@@ -89,7 +92,7 @@ public:
     void InitReagents();
     void InitConsumables();
     void InitPotions();
-    void InitGlyphs(bool increment = false);
+    void InitGlyphs(bool increment = false, uint32 specNo = MAX_SPECNO);
     void InitFood();
     void InitMounts();
     void InitBags(bool destroyOld = true);
@@ -102,6 +105,10 @@ public:
     void InitGuild();
 
 private:
+    void InitLoadoutClassQuests(bool completeDeathKnightStart = false);
+    void InitLoadoutSpells();
+    void InitLoadoutMounts();
+
     enum class ProfessionSpecializationSpell : uint32
     {
         Weapon = 9787,
@@ -230,6 +237,10 @@ private:
     uint32 level;
     uint32 itemQuality;
     uint32 gearScoreLimit;
+    int32 _loadoutTalentTab = -1;
+    bool _loadoutPvp = false;
+    bool _populationPvp = false;
+    bool _populationArena = false;
     static std::list<uint32> specialQuestIds;
     static std::unordered_map<uint32, std::vector<uint32>> trainerIdCache;
     static std::vector<uint32> enchantSpellIdCache;

@@ -129,6 +129,8 @@ private:
     bool flagTaken();
     bool teamFlagTaken();
     bool protectFC();
+    bool selectCoordinatedObjective();
+    bool strandTactics();
     bool useBuff();
     uint32 getPlayersInArea(TeamId teamId, Position point, float range, bool combat = true);
     bool IsLockedInsideKeep();

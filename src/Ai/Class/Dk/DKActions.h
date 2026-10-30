@@ -159,16 +159,24 @@ public:
 BEGIN_MELEE_SPELL_ACTION(CastCorpseExplosionAction, "corpse explosion")
 END_SPELL_ACTION()
 
-BEGIN_MELEE_SPELL_ACTION(CastAntiMagicShellAction, "anti magic shell")
-END_SPELL_ACTION()
-
-BEGIN_MELEE_SPELL_ACTION(CastAntiMagicZoneAction, "anti magic zone")
-END_SPELL_ACTION()
-
-class CastChainsOfIceAction : public CastSpellAction
+class CastAntiMagicShellAction : public CastBuffSpellAction
 {
 public:
-    CastChainsOfIceAction(PlayerbotAI* botAI) : CastSpellAction(botAI, "chains of ice") {}
+    CastAntiMagicShellAction(PlayerbotAI* botAI) : CastBuffSpellAction(botAI, "anti-magic shell") {}
+    std::string const getName() override { return "anti magic shell"; }
+};
+
+class CastAntiMagicZoneAction : public CastBuffSpellAction
+{
+public:
+    CastAntiMagicZoneAction(PlayerbotAI* botAI) : CastBuffSpellAction(botAI, "anti-magic zone") {}
+    std::string const getName() override { return "anti magic zone"; }
+};
+
+class CastChainsOfIceAction : public CastDebuffSpellAction
+{
+public:
+    CastChainsOfIceAction(PlayerbotAI* botAI) : CastDebuffSpellAction(botAI, "chains of ice") {}
 };
 
 class CastHungeringColdAction : public CastMeleeSpellAction
@@ -317,10 +325,17 @@ public:
     CastMindFreezeAction(PlayerbotAI* botAI) : CastMeleeSpellAction(botAI, "mind freeze") {}
 };
 
-class CastStrangulateAction : public CastMeleeSpellAction
+class CastStrangulateAction : public CastSpellAction
 {
 public:
-    CastStrangulateAction(PlayerbotAI* botAI) : CastMeleeSpellAction(botAI, "strangulate") {}
+    CastStrangulateAction(PlayerbotAI* botAI) : CastSpellAction(botAI, "strangulate") {}
+};
+
+class CastStrangulateOnEnemyHealerAction : public CastSpellOnEnemyHealerAction
+{
+public:
+    CastStrangulateOnEnemyHealerAction(PlayerbotAI* botAI)
+        : CastSpellOnEnemyHealerAction(botAI, "strangulate") {}
 };
 
 class CastMindFreezeOnEnemyHealerAction : public CastSpellOnEnemyHealerAction
@@ -329,16 +344,16 @@ public:
     CastMindFreezeOnEnemyHealerAction(PlayerbotAI* botAI) : CastSpellOnEnemyHealerAction(botAI, "mind freeze") {}
 };
 
-class CastRuneTapAction : public CastMeleeSpellAction
+class CastRuneTapAction : public CastBuffSpellAction
 {
 public:
-    CastRuneTapAction(PlayerbotAI* botAI) : CastMeleeSpellAction(botAI, "rune tap") {}
+    CastRuneTapAction(PlayerbotAI* botAI) : CastBuffSpellAction(botAI, "rune tap") {}
 };
 
-class CastBloodTapAction : public CastMeleeSpellAction
+class CastBloodTapAction : public CastBuffSpellAction
 {
 public:
-    CastBloodTapAction(PlayerbotAI* botAI) : CastMeleeSpellAction(botAI, "blood tap") {}
+    CastBloodTapAction(PlayerbotAI* botAI) : CastBuffSpellAction(botAI, "blood tap") {}
 };
 
 class CastHysteriaAction : public CastSpellAction

@@ -39,6 +39,7 @@
 #include "NonCombatStrategy.h"
 #include "PassiveStrategy.h"
 #include "PullStrategy.h"
+#include "PvpCombatStrategy.h"
 #include "QuestStrategies.h"
 #include "RTSCStrategy.h"
 #include "RacialsStrategy.h"
@@ -62,6 +63,7 @@ class StrategyContext : public NamedObjectContext<Strategy>
 public:
     StrategyContext()
     {
+        creators["pvp combat"] = [](PlayerbotAI* botAI) { return new PvpCombatStrategy(botAI); };
         creators["racials"] = &StrategyContext::racials;
         creators["loot"] = &StrategyContext::loot;
         creators["gather"] = &StrategyContext::gather;
@@ -105,6 +107,8 @@ public:
         creators["behind"] = &StrategyContext::behind;
         creators["bg"] = &StrategyContext::bg;
         creators["battleground"] = &StrategyContext::battleground;
+        creators["bg coordination"] = &StrategyContext::bg_coordination;
+        creators["strand"] = &StrategyContext::strand;
         creators["warsong"] = &StrategyContext::warsong;
         creators["alterac"] = &StrategyContext::alterac;
         creators["arathi"] = &StrategyContext::arathi;
@@ -180,6 +184,8 @@ private:
     static Strategy* pull_back(PlayerbotAI* botAI) { return new PullBackStrategy(botAI); }
     static Strategy* mount(PlayerbotAI* botAI) { return new MountStrategy(botAI); }
     static Strategy* bg(PlayerbotAI* botAI) { return new BGStrategy(botAI); }
+    static Strategy* bg_coordination(PlayerbotAI* botAI) { return new CoordinatedBattlegroundStrategy(botAI); }
+    static Strategy* strand(PlayerbotAI* botAI) { return new StrandStrategy(botAI); }
     static Strategy* battleground(PlayerbotAI* botAI) { return new BattlegroundStrategy(botAI); }
     static Strategy* warsong(PlayerbotAI* botAI) { return new WarsongStrategy(botAI); }
     static Strategy* alterac(PlayerbotAI* botAI) { return new AlteracStrategy(botAI); }

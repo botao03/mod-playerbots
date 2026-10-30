@@ -74,6 +74,7 @@
 #include "PositionValue.h"
 #include "PossibleRpgTargetsValue.h"
 #include "PossibleTargetsValue.h"
+#include "PvpCombatValues.h"
 #include "PvpValues.h"
 #include "QuestValues.h"
 #include "RTSCValues.h"
@@ -254,6 +255,8 @@ public:
         creators["party member without water"] = &ValueContext::party_member_without_water;
         creators["death count"] = &ValueContext::death_count;
 
+        creators["pvp debuff flags"] = [](PlayerbotAI* botAI) { return new PvpDebuffFlagsValue(botAI); };
+        creators["pvp magic caster"] = [](PlayerbotAI* botAI) { return new PvpMagicCasterValue(botAI); };
         creators["bg type"] = &ValueContext::bg_type;
         creators["rpg bg type"] = &ValueContext::rpg_bg_type;
         creators["arena type"] = &ValueContext::arena_type;
@@ -261,6 +264,9 @@ public:
         creators["bg master"] = &ValueContext::bg_master;
         creators["enemy flag carrier"] = &ValueContext::enemy_fc;
         creators["team flag carrier"] = &ValueContext::team_fc;
+        creators["bg focus target"] = &ValueContext::bg_focus_target;
+        creators["bg control target"] = &ValueContext::bg_control_target;
+        creators["bg protected crowd control"] = &ValueContext::bg_protected_control;
 
         creators["home bind"] = &ValueContext::home_bind;
         creators["last long move"] = &ValueContext::last_long_move;
@@ -509,6 +515,10 @@ private:
     static UntypedValue* arena_type(PlayerbotAI* botAI) { return new ArenaTypeValue(botAI); }
     static UntypedValue* bg_type(PlayerbotAI* botAI) { return new BgTypeValue(botAI); }
     static UntypedValue* rpg_bg_type(PlayerbotAI* botAI) { return new RpgBgTypeValue(botAI); }
+    static UntypedValue* bg_focus_target(PlayerbotAI* botAI) { return new BattlegroundTargetValue(botAI); }
+    static UntypedValue* bg_protected_control(PlayerbotAI* botAI)
+    { return new BattlegroundProtectedControlValue(botAI); }
+    static UntypedValue* bg_control_target(PlayerbotAI* botAI) { return new BattlegroundTargetValue(botAI, true); }
     static UntypedValue* team_fc(PlayerbotAI* botAI) { return new FlagCarrierValue(botAI, true, true); }
     static UntypedValue* enemy_fc(PlayerbotAI* botAI) { return new FlagCarrierValue(botAI, false, true); }
 

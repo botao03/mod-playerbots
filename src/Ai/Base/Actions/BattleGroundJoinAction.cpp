@@ -4,6 +4,8 @@
  * or (at your option) any later version.
  */
 
+#include "ActivityReplacement.h"
+#include "BotPopulation.h"
 #include "BattleGroundJoinAction.h"
 #include "ArenaTeam.h"
 #include "ArenaTeamMgr.h"
@@ -17,6 +19,18 @@
 bool BGJoinAction::Execute(Event /*event*/)
 {
     uint32 queueType = AI_VALUE(uint32, "bg type");
+    if (BotPopulationState const* state = GetBotPopulation(bot))
+    {
+        if (!state->Ready || (state->Assignment.Purpose != BotPopulationPurpose::Battleground &&
+            state->Assignment.Purpose != BotPopulationPurpose::Arena))
+            return false;
+        queueType = state->Assignment.Queue;
+        if (state->Assignment.Rated && (!bot->GetGroup() || !bot->GetGroup()->IsLeader(bot->GetGUID()) ||
+            bot->GetGroup()->GetMembersCount() != BattlegroundMgr::BGArenaType(BattlegroundQueueTypeId(queueType))))
+            return false;
+        SET_AI_VALUE(uint32, "arena type", state->Assignment.Rated ? 1u : 0u);
+        SET_AI_VALUE(uint32, "bg type", queueType);
+    }
     if (!queueType)  // force join to fill bg
     {
         if (bgList.empty())
@@ -81,7 +95,15 @@ bool BGJoinAction::gatherArenaTeam(ArenaType type)
         // if (!member && !sObjectMgr->GetPlayerAccountIdByGUID(itr->guid))
         //     continue;
 
-        if (offline)
+        if (BotPopulationState const* captain = GetBotPopulation(bot))
+        {
+            BotPopulationState const* state = GetBotPopulation(member);
+            if (!state || !state->Ready || !state->Assignment.Rated ||
+                state->Assignment.Queue != captain->Assignment.Queue ||
+                state->Assignment.Purpose != BotPopulationPurpose::Arena)
+                continue;
+        }
+        else if (offline)
             sRandomPlayerbotMgr.AddPlayerBot(itr->Guid, 0);
 
         if (member)
@@ -310,6 +332,13 @@ bool BGJoinAction::shouldJoinBg(BattlegroundQueueTypeId queueTypeId, Battlegroun
 
 bool BGJoinAction::isUseful()
 {
+    BotPopulationState const* population = GetBotPopulation(bot);
+    if (sPlayerbotAIConfig.PopulationEnabled && (!population || !population->Ready ||
+        (population->Assignment.Purpose != BotPopulationPurpose::Battleground &&
+            population->Assignment.Purpose != BotPopulationPurpose::Arena)))
+        return false;
+    if (population && IsActivityReplacementExcluded(population->Assignment, bot->GetGUID()))
+        return false;
     // do not try if BG bots disabled
     if (!sPlayerbotAIConfig.RandomBotJoinBG)
         return false;
@@ -323,7 +352,7 @@ bool BGJoinAction::isUseful()
         return false;
 
     // do not try right after login (currently not working)
-    if ((time(nullptr) - bot->GetInGameTime()) < 120)
+    if (!population && (time(nullptr) - bot->GetInGameTime()) < 120)
         return false;
 
     // check level
@@ -366,6 +395,9 @@ bool BGJoinAction::isUseful()
             BattlegroundQueueTypeId queueTypeId = BattlegroundQueueTypeId(queueType);
             BattlegroundBracketId bracketId = BattlegroundBracketId(bracket);
 
+            if (population && (population->Assignment.Queue != static_cast<uint32>(queueTypeId) ||
+                population->Assignment.Bracket != static_cast<uint32>(bracketId)))
+                continue;
             if (!canJoinBg(queueTypeId, bracketId))
                 continue;
 
@@ -382,6 +414,11 @@ bool BGJoinAction::isUseful()
 
 bool BGJoinAction::JoinQueue(uint32 type)
 {
+    if (BotPopulationState const* population = GetBotPopulation(bot))
+        if (!population->Ready || population->Assignment.Queue != type ||
+            (population->Assignment.Purpose != BotPopulationPurpose::Battleground &&
+                population->Assignment.Purpose != BotPopulationPurpose::Arena))
+            return false;
     // ignore if player is already in BG, is logging out, or already being teleport
     if (!bot || (!bot->IsInWorld() && !bot->IsBeingTeleported()) || bot->InBattleground())
         return false;

@@ -8,6 +8,7 @@
 #define PLAYERBOTS_RANDOMPLAYERBOTMGR_H
 
 #include "GameTime.h"
+#include "BotPopulation.h"
 #include "NewRpgInfo.h"
 #include "ObjectGuid.h"
 #include "PlayerbotCommandServer.h"
@@ -228,6 +229,36 @@ private:
     std::string GetEventData(uint32 bot, std::string const& event);
     uint32 SetEventValue(uint32 bot, std::string const& event, uint32 value, uint32 validIn,
                          std::string const& data = "");
+    void UpdatePopulation();
+    void PreparePopulationBot(Player* bot, BotPopulationAssignment const& assignment);
+    struct PopulationCandidate
+    {
+        uint32 Guid;
+        uint8 Class;
+        uint8 Race;
+    };
+    struct PopulationReservation
+    {
+        BotPopulationAssignment Assignment;
+        uint32 Created = 0;
+        bool Ready = false;
+        bool LoginRequested = false;
+    };
+    std::vector<PopulationCandidate> _populationCandidates;
+    std::map<uint32, PopulationReservation> _populationReservations;
+    struct PopulationPresence
+    {
+        uint32 Map = 0;
+        uint32 Zone = 0;
+        uint32 Level = 1;
+    };
+    std::map<ObjectGuid, PopulationPresence> _populationOutdoorPresence;
+    std::map<ObjectGuid, uint32> _populationNearbyCounts;
+    uint32 _populationNextActivityOperation = 0;
+    uint32 _populationNextOperation = 0;
+    uint32 _populationNextRetirement = 0;
+    uint32 _populationCandidateCursor = 0;
+    bool _populationLoaded = false;
     void GetBots();
     std::vector<uint32> GetBgBots(uint32 bracket);
     time_t BgCheckTimer;

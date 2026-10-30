@@ -72,6 +72,8 @@ public:
         creators["dd cd and plague strike 3s"] = &DeathKnightTriggerFactoryInternal::dd_cd_and_plague_strike_3s;
         creators["horn of winter"] = &DeathKnightTriggerFactoryInternal::horn_of_winter;
         creators["mind freeze"] = &DeathKnightTriggerFactoryInternal::mind_freeze;
+        creators["death grip pvp"] = &DeathKnightTriggerFactoryInternal::death_grip_pvp;
+        creators["anti magic shell"] = &DeathKnightTriggerFactoryInternal::anti_magic_shell;
         creators["mind freeze on enemy healer"] = &DeathKnightTriggerFactoryInternal::mind_freeze_on_enemy_healer;
         creators["strangulate"] = &DeathKnightTriggerFactoryInternal::strangulate;
         creators["strangulate on enemy healer"] = &DeathKnightTriggerFactoryInternal::strangulate_on_enemy_healer;
@@ -116,6 +118,8 @@ private:
     static Trigger* improved_icy_talons(PlayerbotAI* botAI) { return new ImprovedIcyTalonsTrigger(botAI); }
     static Trigger* horn_of_winter(PlayerbotAI* botAI) { return new HornOfWinterTrigger(botAI); }
     static Trigger* mind_freeze(PlayerbotAI* botAI) { return new MindFreezeInterruptSpellTrigger(botAI); }
+    static Trigger* death_grip_pvp(PlayerbotAI* botAI) { return new DeathGripPvpTrigger(botAI); }
+    static Trigger* anti_magic_shell(PlayerbotAI* botAI) { return new AntiMagicShellTrigger(botAI); }
     static Trigger* mind_freeze_on_enemy_healer(PlayerbotAI* botAI)
     {
         return new MindFreezeOnEnemyHealerTrigger(botAI);
@@ -191,6 +195,7 @@ public:
         creators["blood tap"] = &DeathKnightAiObjectContextInternal::blood_tap;
         creators["pestilence"] = &DeathKnightAiObjectContextInternal::pestilence;
         creators["strangulate"] = &DeathKnightAiObjectContextInternal::strangulate;
+        creators["strangulate on enemy healer"] = &DeathKnightAiObjectContextInternal::strangulate_on_enemy_healer;
         creators["blood boil"] = &DeathKnightAiObjectContextInternal::blood_boil;
         creators["heart strike"] = &DeathKnightAiObjectContextInternal::heart_strike;
         creators["mark of_blood"] = &DeathKnightAiObjectContextInternal::mark_of_blood;
@@ -247,6 +252,10 @@ private:
     static Action* blood_tap(PlayerbotAI* botAI) { return new CastBloodTapAction(botAI); }
     static Action* pestilence(PlayerbotAI* botAI) { return new CastPestilenceAction(botAI); }
     static Action* strangulate(PlayerbotAI* botAI) { return new CastStrangulateAction(botAI); }
+    static Action* strangulate_on_enemy_healer(PlayerbotAI* botAI)
+    {
+        return new CastStrangulateOnEnemyHealerAction(botAI);
+    }
     static Action* blood_boil(PlayerbotAI* botAI) { return new CastBloodBoilAction(botAI); }
     static Action* heart_strike(PlayerbotAI* botAI) { return new CastHeartStrikeAction(botAI); }
     static Action* mark_of_blood(PlayerbotAI* botAI) { return new CastMarkOfBloodAction(botAI); }

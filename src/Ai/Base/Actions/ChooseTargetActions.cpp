@@ -14,6 +14,7 @@
 #include "PvpTriggers.h"
 #include "RtiTargetValue.h"
 #include "ServerFacade.h"
+#include "SpellMgr.h"
 
 bool AttackEnemyPlayerAction::isUseful()
 {
@@ -26,8 +27,10 @@ bool AttackEnemyPlayerAction::isUseful()
 bool AttackEnemyFlagCarrierAction::isUseful()
 {
     Unit* target = context->GetValue<Unit*>("enemy flag carrier")->Get();
-    return target && ServerFacade::instance().IsDistanceLessOrEqualThan(ServerFacade::instance().GetDistance2d(bot, target), 100.0f) &&
-           PlayerHasFlag::IsCapturingFlag(bot);
+    return target && !PlayerbotAI::IsHeal(bot) && !bot->IsNonMeleeSpellCast(false) &&
+        ServerFacade::instance().IsDistanceLessOrEqualThan(
+            ServerFacade::instance().GetDistance2d(bot, target), 100.0f) &&
+        !PlayerHasFlag::IsCapturingFlag(bot) && target != AI_VALUE(Unit*, "current target");
 }
 
 bool AggressiveTargetAction::isUseful()
@@ -203,4 +206,77 @@ bool AttackRtiTargetAction::isUseful()
         return false;
 
     return true;
+}
+
+Unit* BattlegroundFocusAction::GetTarget()
+{
+    return botAI->GetUnit(AI_VALUE(ObjectGuid, "bg focus target"));
+}
+
+bool BattlegroundFocusAction::isUseful()
+{
+    if (!sPlayerbotAIConfig.CoordinatedBattlegrounds || !bot->InBattleground() || bot->InArena() ||
+        bot->GetVehicle() || bot->IsNonMeleeSpellCast(false) ||
+        PlayerHasFlag::IsCapturingFlag(bot) || PlayerbotAI::IsHeal(bot))
+        return false;
+    Unit* target = GetTarget();
+    return target && target->IsAlive() && target != AI_VALUE(Unit*, "current target") &&
+        bot->IsValidAttackTarget(target) && !target->HasBreakableByDamageCrowdControlAura();
+}
+
+bool BattlegroundControlAction::isUseful()
+{
+    if (!sPlayerbotAIConfig.CoordinatedBattlegrounds || !bot->InBattleground() || bot->InArena() ||
+        bot->GetVehicle() || PlayerHasFlag::IsCapturingFlag(bot))
+        return false;
+    if (PlayerbotAI::IsHeal(bot))
+        if (Unit* patient = AI_VALUE(Unit*, "party member to heal"))
+            if (patient->GetHealthPct() < 40.0f)
+                return false;
+    return !AI_VALUE(ObjectGuid, "bg control target").IsEmpty();
+}
+
+bool BattlegroundControlAction::Execute(Event /*event*/)
+{
+    Unit* target = botAI->GetUnit(AI_VALUE(ObjectGuid, "bg control target"));
+    if (!target || !target->IsAlive() || !bot->IsValidAttackTarget(target) ||
+        !bot->IsWithinLOSInMap(target) || target->HasUnitState(UNIT_STATE_CONTROLLED) ||
+        target->HasBreakableByDamageCrowdControlAura() || bot->IsNonMeleeSpellCast(false))
+        return false;
+    std::vector<std::string> spells;
+    switch (bot->getClass())
+    {
+        case CLASS_WARRIOR: spells = {"concussion blow", "intercept", "hamstring"}; break;
+        case CLASS_PALADIN: spells = {"hammer of justice", "repentance"}; break;
+        case CLASS_HUNTER: spells = {"scatter shot", "wyvern sting", "concussive shot"}; break;
+        case CLASS_ROGUE: spells = {"kidney shot", "blind", "gouge"}; break;
+        case CLASS_PRIEST: spells = {"silence", "psychic horror"}; break;
+        case CLASS_DEATH_KNIGHT: spells = {"strangulate", "chains of ice"}; break;
+        case CLASS_SHAMAN: spells = {"hex", "frost shock"}; break;
+        case CLASS_MAGE: spells = {"deep freeze", "polymorph", "slow"}; break;
+        case CLASS_WARLOCK: spells = {"shadowfury", "death coil", "fear"}; break;
+        case CLASS_DRUID: spells = {"bash", "cyclone", "entangling roots"}; break;
+        default: return false;
+    }
+    bool focused = target->GetGUID() == AI_VALUE(ObjectGuid, "bg focus target");
+    for (std::string const& name : spells)
+    {
+        uint32 id = AI_VALUE2(uint32, "spell id", name);
+        SpellInfo const* spell = sSpellMgr->GetSpellInfo(id);
+        if (!id || !spell || !bot->HasSpell(id) || bot->HasSpellCooldown(id) || target->HasAura(id) ||
+            !bot->IsWithinDistInMap(target, spell->GetMaxRange(false, bot)))
+            continue;
+        bool breakable = name == "repentance" || name == "scatter shot" || name == "wyvern sting" ||
+            name == "blind" || name == "gouge" || name == "hex" || name == "polymorph" || name == "fear" ||
+            name == "entangling roots";
+        if ((breakable && (focused || target->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE))) ||
+            (name == "cyclone" && focused))
+            continue;
+        DiminishingGroup group = GetDiminishingReturnsGroupForSpell(spell, false);
+        if (group != DIMINISHING_NONE && target->GetDiminishing(group) >= DIMINISHING_LEVEL_IMMUNE)
+            continue;
+        if (botAI->CanCastSpell(id, target) && botAI->CastSpell(id, target))
+            return true;
+    }
+    return false;
 }

@@ -272,6 +272,13 @@ protected:
 
 Unit* DpsTargetValue::Calculate()
 {
+    if (sPlayerbotAIConfig.CoordinatedBattlegrounds && bot->InBattleground() && !bot->InArena() && !bot->GetVehicle())
+    {
+        Unit* target = botAI->GetUnit(AI_VALUE(ObjectGuid, "bg focus target"));
+        if (target && target->IsAlive() && bot->IsValidAttackTarget(target) &&
+            !target->HasBreakableByDamageCrowdControlAura())
+            return target;
+    }
     GuidSet const exclusions = GatherStrategyTargetExclusions(botAI, TargetValueExclusionType::DpsTarget);
     Unit* rti = RtiTargetValue::Calculate();
     if (rti && exclusions.find(rti->GetGUID()) == exclusions.end())
@@ -322,6 +329,13 @@ protected:
 
 Unit* DpsAoeTargetValue::Calculate()
 {
+    if (sPlayerbotAIConfig.CoordinatedBattlegrounds && bot->InBattleground() && !bot->InArena() && !bot->GetVehicle())
+    {
+        Unit* target = botAI->GetUnit(AI_VALUE(ObjectGuid, "bg focus target"));
+        if (target && target->IsAlive() && bot->IsValidAttackTarget(target) &&
+            !target->HasBreakableByDamageCrowdControlAura())
+            return target;
+    }
     GuidSet const exclusions = GatherStrategyTargetExclusions(botAI, TargetValueExclusionType::DpsTarget);
     Unit* rti = RtiTargetValue::Calculate();
     if (rti && exclusions.find(rti->GetGUID()) == exclusions.end())

@@ -7,8 +7,10 @@
 #include "PvpTriggers.h"
 #include "BattleGroundTactics.h"
 #include "BattlegroundEY.h"
+#include "BotPopulation.h"
 #include "BattlegroundMgr.h"
 #include "BattlegroundWS.h"
+#include "LFGMgr.h"
 #include "Playerbots.h"
 #include "ServerFacade.h"
 
@@ -260,40 +262,15 @@ bool EnemyFlagCarrierNear::IsActive()
     if (!carrier || !ServerFacade::instance().IsDistanceLessOrEqualThan(ServerFacade::instance().GetDistance2d(bot, carrier), 100.f))
         return false;
 
-    // Check if there is another enemy player target closer than the FC
-    Unit* nearbyEnemy = AI_VALUE(Unit*, "enemy player target");
-
-    if (nearbyEnemy)
-    {
-        float distToFC = ServerFacade::instance().GetDistance2d(bot, carrier);
-        float distToEnemy = ServerFacade::instance().GetDistance2d(bot, nearbyEnemy);
-
-        // If the other enemy is significantly closer, don't pursue FC
-        if (distToEnemy + 15.0f < distToFC) // Add small buffer
-            return false;
-    }
-
     return true;
 }
 
 bool TeamFlagCarrierNear::IsActive()
 {
-    if (RealBgType(bot) == BATTLEGROUND_WS)
-    {
-        BattlegroundWS* bg = dynamic_cast<BattlegroundWS*>(bot->GetBattleground());
-        if (bg)
-        {
-            bool bothFlagsNotAtBase =
-                bg->GetFlagState(TEAM_ALLIANCE) != BG_WS_FLAG_STATE_ON_BASE &&
-                bg->GetFlagState(TEAM_HORDE) != BG_WS_FLAG_STATE_ON_BASE;
-
-            if (bothFlagsNotAtBase)
-                return false;
-        }
-    }
-
     Unit* carrier = AI_VALUE(Unit*, "team flag carrier");
-    return carrier && ServerFacade::instance().IsDistanceLessOrEqualThan(ServerFacade::instance().GetDistance2d(bot, carrier), 200.f);
+    return carrier && carrier != bot && carrier->IsAlive() &&
+        ServerFacade::instance().IsDistanceLessOrEqualThan(
+            ServerFacade::instance().GetDistance2d(bot, carrier), 200.0f);
 }
 
 bool PlayerWantsInBattlegroundTrigger::IsActive()
@@ -320,3 +297,15 @@ bool VehicleNearTrigger::IsActive()
 }
 
 bool InVehicleTrigger::IsActive() { return botAI->IsInVehicle(); }
+
+bool PopulationQueueReadyTrigger::IsActive()
+{
+    BotPopulationState const* state = GetBotPopulation(bot);
+    if (!state || !state->Ready || bot->InBattleground() || bot->InBattlegroundQueue())
+        return false;
+    if (state->Assignment.Purpose == BotPopulationPurpose::Dungeon)
+        return sPlayerbotAIConfig.RandomBotJoinLfg &&
+            sLFGMgr->GetState(bot->GetGUID()) == lfg::LFG_STATE_NONE;
+    return state->Assignment.Purpose == BotPopulationPurpose::Battleground ||
+        state->Assignment.Purpose == BotPopulationPurpose::Arena;
+}

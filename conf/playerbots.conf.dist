@@ -473,6 +473,17 @@ Playerbots.DropObsoleteQuests = 1
 # Auto add dungeon/raid strategies when entering the instance if implemented
 Playerbots.ApplyInstanceStrategies = 1
 
+# Add class and racial responses to player opponents in duels, world PvP, battlegrounds and arenas.
+# Checks actual casts, control effects and health before using learned skills and equipped PvP trinkets.
+# Default: 0 (disabled)
+Playerbots.PvpCombatTactics = 0
+
+# With PvpCombatTactics enabled, use carried engineering grenades to interrupt or snare enemy players.
+# Requires the item's engineering skill and normal cooldowns/charges; never supplies free items.
+# Grenades are not used in arenas.
+# Default: 0 (disabled)
+Playerbots.PvpUseEngineeringItems = 0
+
 # Enable auto avoid aoe strategy
 # Default: 1 (enabled)
 Playerbots.AutoAvoidAoe = 1
@@ -1645,6 +1656,14 @@ Playerbots.RandomBotJoinBG = 1
 # Default: 0 (disabled)
 Playerbots.AllowBattlegroundCommands = 0
 
+# Evacuate headless bots from dungeons, raids and battlegrounds without connected human participants.
+# Real clients (including SelfBots) and incoming human worldports cancel the grace timer.
+# Instance progress and bindings are preserved; automatic evacuation does not apply deserter penalties.
+# Enabling this also disables autonomous battleground creation to avoid empty-instance loops.
+# Default: 0 (disabled); grace period default: 60 seconds.
+Playerbots.CleanupEmptyInstances = 0
+Playerbots.EmptyInstanceGraceSeconds = 60
+
 # Enable auto-joining of battlegrounds - have bots start battlegrounds and arenas on their own
 Playerbots.RandomBotAutoJoinBG = 0
 
@@ -2161,6 +2180,13 @@ Playerbots.PremadeSpecGlyph.11.6 = 40913,43331,40906,43335,43674,45623
 Playerbots.PremadeSpecLink.11.6.60 = --230033312031500511350013051
 Playerbots.PremadeSpecLink.11.6.80 = 05320021--230033312031500531353013251
 
+# Bear PvP template for explicit loadouts; excluded from random bot spec selection.
+Playerbots.PremadeSpecName.11.7 = bear pvp
+Playerbots.PremadeSpecGlyph.11.7 = 40897,43331,46372,43335,43332,40899
+Playerbots.PremadeSpecLink.11.7.60 = -503232130322210303123300010501
+Playerbots.PremadeSpecLink.11.7.80 = -503232130322210353123303010511-20350001
+Playerbots.RandomClassSpecProb.11.7 = 0
+
 #
 #
 ####################################################################################################
@@ -2552,6 +2578,11 @@ Playerbots.Updates.EnableDatabases = 1
 # Command server port, 0 - disabled
 Playerbots.CommandServerPort = 8888
 
+# Optional read-only world snapshot for a local monitoring website. Empty disables collection.
+# Absolute CSV path; its parent directory must exist and be writable by worldserver.
+# Samples and atomic snapshot replacement run every 5 seconds; stale samples expire after 30 seconds.
+Playerbots.WorldSnapshotPath = ""
+
 #
 #
 ####################################################################################################
@@ -2753,3 +2784,37 @@ Playerbots.TargetPosRecalcDistance = 0.1
 
 # Allow bots to be summoned near innkeepers
 Playerbots.SummonAtInnkeepersEnabled = 1
+
+# Independent world and activity populations. Replaces the legacy random login/count scheduler.
+# Restart the server after enabling or disabling this scheduler.
+# WorldCount is shared across occupied outdoor zones, never multiplied by player/zone count.
+# Players in instances retain demand in their last outdoor region until returning or logging out.
+# Capitals and outdoor zones have separate spawn/patrol boundaries and share the same WorldCount quota.
+# Dalaran population bots are always level 80. Shattrath: 80% level 80, 20% level 70-79.
+# Other capitals: 80% level 80, 20% level 10-79 (death knights remain level 55+).
+# Of level-80 capital bots, 80% receive a complete arena or PvE endgame loadout (equal chance).
+# Ordinary spawns choose random safe ground near ground-creature spawns throughout the occupied zone.
+# Capitals use friendly service NPC locations inside the city only. No player-distance or visibility restriction.
+# Optional nearby spawns use safe ground 20-40 yards away and count toward the same world quota.
+# Activity bots use additional offline characters and are retired after their queue/instance ends.
+# Dungeon bots approve human-initiated vote kicks. Kicked dungeon vacancies wait 30 seconds for replacement.
+# Mid-match battleground departures wait 30 seconds before requesting another population bot.
+Playerbots.Population.Enabled = 0
+Playerbots.Population.WorldCount = 50
+# Maximum additional battleground, arena and dungeon bots, including pending logins.
+Playerbots.Population.ActivityLimit = 200
+# Limit occupied zones to WorldCount / MinPerZone, preferring zones with more real players.
+Playerbots.Population.MinPerZone = 5
+# Percentage of eligible battleground equipment slots using endgame epics; remaining slots use rares.
+Playerbots.Population.BattlegroundEpicPercent = 60
+# Seconds between individual WORLD login, initialization or relocation operations. Minimum 5; no catch-up bursts.
+Playerbots.Population.OperationInterval = 15
+# Activities take priority over nearby world spawns, then ordinary world spawns, with an independent timer.
+Playerbots.Population.ActivityOperationInterval = 5
+# Reserve 1-3 of each occupied region's world slots per player; spawn them safely 20-40 yards away first.
+# Nearby slots remain part of WorldCount, and refresh when the player changes region.
+Playerbots.Population.NearbySpawns = 0
+# Coordinate battleground objectives, flag carrier support, focus fire and class crowd control.
+Playerbots.CoordinatedBattlegrounds = 0
+# Seconds between individual retirements when a region or activity no longer needs bots. Minimum 5.
+Playerbots.Population.LogoutInterval = 10

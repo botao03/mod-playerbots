@@ -212,6 +212,7 @@ public:
         creators["swipe (bear)"] = &DruidAiObjectContextInternal::swipe_bear;
         creators["faerie fire (feral)"] = &DruidAiObjectContextInternal::faerie_fire_feral;
         creators["faerie fire"] = &DruidAiObjectContextInternal::faerie_fire;
+        creators["pvp break root"] = [](PlayerbotAI* botAI) { return new PvpBreakRootAction(botAI); };
         creators["bear form"] = &DruidAiObjectContextInternal::bear_form;
         creators["dire bear form"] = &DruidAiObjectContextInternal::dire_bear_form;
         creators["moonkin form"] = &DruidAiObjectContextInternal::moonkin_form;

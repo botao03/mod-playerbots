@@ -4,6 +4,7 @@
  * or (at your option) any later version.
  */
 
+#include "BotPopulation.h"
 #include "MoveToTravelTargetAction.h"
 #include "ChooseRpgTargetAction.h"
 #include "LootObjectStack.h"
@@ -15,6 +16,11 @@ bool MoveToTravelTargetAction::Execute(Event /*event*/)
 
     WorldPosition botLocation(bot);
     WorldLocation location = *target->getPosition();
+    if (!IsPopulationTravelAllowed(bot, location))
+    {
+        target->setStatus(TRAVEL_STATUS_EXPIRED);
+        return false;
+    }
 
     Group* group = bot->GetGroup();
     if (group && !urand(0, 1) && bot == botAI->GetGroupLeader() && !bot->IsInCombat())

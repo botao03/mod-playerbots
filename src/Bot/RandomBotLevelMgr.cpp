@@ -928,6 +928,8 @@ void RandomBotLevelMgr::RunResetPlayedTimeCheck()
 
 void RandomBotLevelMgr::Update(uint32 diff)
 {
+    if (sPlayerbotAIConfig.PopulationEnabled)
+        return;
     if (sPlayerbotAIConfig.LevelBracketsEnabled)
     {
         _bracketsTimer += diff;
@@ -960,6 +962,8 @@ void RandomBotLevelMgr::Update(uint32 diff)
 
 void RandomBotLevelMgr::OnBotLogin(Player* player)
 {
+    if (sPlayerbotAIConfig.PopulationEnabled)
+        return;
     if (!sRandomPlayerbotMgr.IsRandomBot(player))
         return;
 
@@ -1013,6 +1017,8 @@ void RandomBotLevelMgr::OnBotLogin(Player* player)
 
 void RandomBotLevelMgr::OnBotLevelChanged(Player* player, uint8 oldLevel)
 {
+    if (sPlayerbotAIConfig.PopulationEnabled)
+        return;
     if (!sRandomPlayerbotMgr.IsRandomBot(player))
         return;
 

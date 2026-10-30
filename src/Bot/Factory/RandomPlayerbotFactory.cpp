@@ -392,9 +392,11 @@ uint32 RandomPlayerbotFactory::CalculateTotalAccountCount()
     int divisor = CalculateAvailableCharsPerAccount();
 
     // Calculate max bots
-    int maxBots = sPlayerbotAIConfig.MaxRandomBots;
+    int maxBots = sPlayerbotAIConfig.PopulationEnabled
+            ? sPlayerbotAIConfig.PopulationWorldCount + sPlayerbotAIConfig.PopulationActivityLimit
+            : sPlayerbotAIConfig.MaxRandomBots;
     // Take periodic online/offline into account
-    if (sPlayerbotAIConfig.EnablePeriodicOnlineOffline)
+    if (!sPlayerbotAIConfig.PopulationEnabled && sPlayerbotAIConfig.EnablePeriodicOnlineOffline)
         maxBots *= sPlayerbotAIConfig.PeriodicOnlineOfflineRatio;
 
     // Calculate number of accounts needed for RNDbots

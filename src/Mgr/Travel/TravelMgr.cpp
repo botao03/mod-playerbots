@@ -4641,8 +4641,32 @@ void TravelMgr::PrepareZone2LevelBracket()
         zone2LevelBracket[zoneId] = {bracketPair.first, bracketPair.second};
 }
 
+bool TravelMgr::IsPopulationLocationSafe(WorldLocation const& location, uint32 faction) const
+{
+    FactionTemplateEntry const* playerFaction = sFactionTemplateStore.LookupEntry(faction);
+    if (!playerFaction)
+        return false;
+    int32 cellX = static_cast<int32>(std::floor(location.GetPositionX() / 100.0f));
+    int32 cellY = static_cast<int32>(std::floor(location.GetPositionY() / 100.0f));
+    for (int32 x = cellX - 1; x <= cellX + 1; ++x)
+        for (int32 y = cellY - 1; y <= cellY + 1; ++y)
+        {
+            auto itr = populationThreats.find({location.GetMapId(), x, y});
+            if (itr == populationThreats.end())
+                continue;
+            for (auto const& [position, factionId] : itr->second)
+                if (position.GetExactDist(location) < 60.0f)
+                    if (FactionTemplateEntry const* npcFaction = sFactionTemplateStore.LookupEntry(factionId))
+                        if (npcFaction->IsHostileTo(*playerFaction))
+                            return false;
+        }
+    return true;
+}
+
 void TravelMgr::PrepareDestinationCache()
 {
+    populationLocations.clear();
+    populationThreats.clear();
     uint32 maxLevel = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
     uint32 flightMastersCount = 0;
     uint32 innkeepersCount = 0;
@@ -4669,7 +4693,8 @@ void TravelMgr::PrepareDestinationCache()
         float orient = creatureData.orientation;
         uint32 templateEntry = creatureData.id;
 
-        Map* map = sMapMgr->FindMap(mapId, 0);
+        Map* map = sPlayerbotAIConfig.PopulationEnabled
+            ? sMapMgr->CreateBaseMap(mapId) : sMapMgr->FindMap(mapId, 0);
         if (!map)
             continue;
 
@@ -4678,6 +4703,22 @@ void TravelMgr::PrepareDestinationCache()
             continue;
 
         uint32 areaId = area->zone ? area->zone : area->ID;
+
+        if (sPlayerbotAIConfig.PopulationEnabled && (creatureData.phaseMask & PHASEMASK_NORMAL))
+            populationThreats[{mapId, static_cast<int32>(std::floor(x / 100.0f)),
+                static_cast<int32>(std::floor(y / 100.0f))}].push_back({WorldLocation(mapId, x, y, z),
+                    creatureTemplate->faction});
+
+        // Outdoor ground spawns spread candidates across the zone; capitals keep their service anchors.
+        constexpr uint32 SAFE_SERVICES = UNIT_NPC_FLAG_INNKEEPER | UNIT_NPC_FLAG_TRAINER |
+            UNIT_NPC_FLAG_VENDOR | UNIT_NPC_FLAG_BANKER | UNIT_NPC_FLAG_FLIGHTMASTER;
+        if (sPlayerbotAIConfig.PopulationEnabled && (creatureData.phaseMask & PHASEMASK_NORMAL) &&
+            !creatureData.poolId &&
+            (FindCapitalByZone(areaId)
+                ? (creatureTemplate->npcflag & SAFE_SERVICES) && creatureData.movementType == 0
+                : creatureTemplate->Movement.IsGroundAllowed()))
+            populationLocations[{mapId, areaId}].push_back({WorldLocation(mapId, x, y, z, orient),
+                creatureTemplate->faction});
 
         // CREATURES
         if (creatureTemplate->npcflag == 0 &&

@@ -291,6 +291,9 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
     if (sPlayerbotAIConfig.AutoAvoidAoe && facade->HasGameClientMaster())
         engine->addStrategy("avoid aoe", false);
 
+    if (sPlayerbotAIConfig.PvpCombatTactics)
+        engine->addStrategy("pvp combat", false);
+
     engine->addStrategy("formation", false);
 
     switch (player->getClass())
@@ -467,6 +470,13 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
         BattlegroundTypeId bgType = player->GetBattlegroundTypeId();
         if (bgType == BATTLEGROUND_RB)
             bgType = player->GetBattleground()->GetBgTypeID(true);
+
+        if (sPlayerbotAIConfig.CoordinatedBattlegrounds && !player->InArena())
+        {
+            engine->addStrategy("bg coordination", false);
+            if (bgType == BATTLEGROUND_SA)
+                engine->addStrategy("strand", false);
+        }
 
         if (bgType == BATTLEGROUND_WS)
             engine->addStrategy("warsong", false);
@@ -687,9 +697,17 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
         if (bgType == BATTLEGROUND_RB)
             bgType = player->GetBattleground()->GetBgTypeID(true);
 
-        if ((bgType <= BATTLEGROUND_EY || bgType == BATTLEGROUND_IC) &&
+        if ((bgType <= BATTLEGROUND_EY || bgType == BATTLEGROUND_IC ||
+            (bgType == BATTLEGROUND_SA && sPlayerbotAIConfig.CoordinatedBattlegrounds)) &&
             !player->InArena())  // do not add for not supported bg or arena
             nonCombatEngine->addStrategy("battleground", false);
+
+        if (sPlayerbotAIConfig.CoordinatedBattlegrounds && !player->InArena())
+        {
+            nonCombatEngine->addStrategy("bg coordination", false);
+            if (bgType == BATTLEGROUND_SA)
+                nonCombatEngine->addStrategy("strand", false);
+        }
 
         if (bgType == BATTLEGROUND_WS)
             nonCombatEngine->addStrategy("warsong", false);
@@ -744,6 +762,8 @@ void AiFactory::AddDefaultReactionStrategies(Player* player, PlayerbotAI* const 
                                              ReactionEngine* reactionEngine)
 {
     reactionEngine->addStrategies("react", "chat", nullptr);
+    if (sPlayerbotAIConfig.PvpCombatTactics)
+        reactionEngine->addStrategy("pvp combat", false);
 
     if (sRandomPlayerbotMgr.IsRandomBot(player))
         reactionEngine->ChangeStrategy(sPlayerbotAIConfig.RandomBotReactStrategies);

@@ -51,6 +51,7 @@ struct BotPopulationState final : DataMap::Base
 };
 
 BotPopulationState const* GetBotPopulation(Player const* bot);
+bool IsPopulationBotStaged(Player const* bot);
 bool IsPopulationTravelAllowed(Player const* bot, WorldLocation const& location);
 
 #endif

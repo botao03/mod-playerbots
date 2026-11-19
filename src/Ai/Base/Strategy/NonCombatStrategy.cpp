@@ -18,8 +18,9 @@ void CollisionStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
         new TriggerNode("collision", { NextAction("move out of collision", 2.0f) }));
 }
 
-void MountStrategy::InitTriggers(std::vector<TriggerNode*>& /*triggers*/)
+void MountStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
+    triggers.push_back(new TriggerNode("master mount state", { NextAction("check mount state", ACTION_NORMAL) }));
 }
 
 void WorldBuffStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)

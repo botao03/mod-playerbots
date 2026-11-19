@@ -72,6 +72,9 @@ bool RandomPlayerbotFactory::IsValidRaceClassCombination(uint8 race, uint8 cls, 
     if (expansion < EXPANSION_WRATH_OF_THE_LICH_KING && cls == CLASS_DEATH_KNIGHT)
         return false;
 
+    if (!Player::IsRaceClassAllowedForCreation(race, cls))
+        return false;
+
     PlayerInfo const* info = sObjectMgr->GetPlayerInfo(race, cls);
     return info != nullptr;
 }

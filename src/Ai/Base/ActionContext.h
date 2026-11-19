@@ -64,6 +64,7 @@
 #include "SayAction.h"
 #include "ShareQuestAction.h"
 #include "StayActions.h"
+#include "StrandOfTheAncientsActions.h"
 #include "SuggestWhatToDoAction.h"
 #include "TravelAction.h"
 #include "UseItemAction.h"
@@ -111,6 +112,8 @@ public:
         creators["pvp target spell"] = [](PlayerbotAI* botAI) { return new PvpSpellAction(botAI, false); };
         creators["pvp trinket"] = [](PlayerbotAI* botAI) { return new PvpUseItemAction(botAI, false); };
         creators["pvp grenade"] = [](PlayerbotAI* botAI) { return new PvpUseItemAction(botAI, true); };
+        creators["prepare pvp duel"] = [](PlayerbotAI* botAI) { return new PreparePvpDuelAction(botAI); };
+        creators["stop pvp attack"] = [](PlayerbotAI* botAI) { return new StopPvpAttackAction(botAI); };
         creators["arcane torrent"] = &ActionContext::arcane_torrent;
         creators["pull my target"] = &ActionContext::pull_my_target;
         creators["pull rti target"] = &ActionContext::pull_rti_target;
@@ -236,6 +239,11 @@ public:
 
         // Vehicles
         creators["enter vehicle"] = &ActionContext::enter_vehicle;
+        creators["strand capture"] = &ActionContext::strand_capture;
+        creators["strand prepare"] = &ActionContext::strand_prepare;
+        creators["strand vehicle"] = &ActionContext::strand_vehicle;
+        creators["strand regroup"] = &ActionContext::strand_regroup;
+        creators["strand bomb"] = &ActionContext::strand_bomb;
         creators["leave vehicle"] = &ActionContext::leave_vehicle;
         creators["hurl boulder"] = &ActionContext::hurl_boulder;
         creators["ram"] = &ActionContext::ram;
@@ -442,6 +450,11 @@ private:
     static Action* bg_check_flag(PlayerbotAI* botAI) { return new BGTactics(botAI, "check flag"); }
 
     // Vehicles
+    static Action* strand_capture(PlayerbotAI* botAI) { return new StrandCaptureAction(botAI); }
+    static Action* strand_prepare(PlayerbotAI* botAI) { return new StrandPrepareAction(botAI); }
+    static Action* strand_vehicle(PlayerbotAI* botAI) { return new StrandVehicleAction(botAI); }
+    static Action* strand_regroup(PlayerbotAI* botAI) { return new StrandDefenseAction(botAI); }
+    static Action* strand_bomb(PlayerbotAI* botAI) { return new StrandBombAction(botAI); }
     static Action* enter_vehicle(PlayerbotAI* botAI) { return new EnterVehicleAction(botAI); }
     static Action* leave_vehicle(PlayerbotAI* botAI) { return new LeaveVehicleAction(botAI); }
     static Action* hurl_boulder(PlayerbotAI* botAI) { return new CastHurlBoulderAction(botAI); }

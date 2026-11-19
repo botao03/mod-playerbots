@@ -50,7 +50,6 @@ constexpr uint32 LOGINS_PER_UPDATE = 2;
 constexpr uint32 WORLD_RETRY_PRIORITY = 3;
 constexpr uint32 MAX_PLAYER_LEVEL = 80;
 constexpr uint32 DEATH_KNIGHT_MIN_LEVEL = 55;
-constexpr uint32 STAGING_PHASE_MASK = 1u << 30;
 constexpr float NEARBY_SPAWN_MIN_DISTANCE = 20.0f;
 constexpr float NEARBY_SPAWN_MAX_DISTANCE = 40.0f;
 
@@ -94,6 +93,7 @@ bool FindWorldLocation(TeamId team, BotPopulationAssignment& assignment)
     {
         Player* owner = ObjectAccessor::FindConnectedPlayer(assignment.Owner);
         if (!IsPopulationClient(owner) || owner->IsBeingTeleported() || owner->GetMap() != map ||
+            owner->GetTeamId() != team ||
             !IsPopulationPatrolZone(assignment.Zone, owner->GetZoneId()))
             return false;
         for (uint32 attempt = 0; attempt < 80; ++attempt)
@@ -208,6 +208,12 @@ BotPopulationState const* GetBotPopulation(Player const* bot)
         ? bot->CustomData.Get<BotPopulationState>(BotPopulationState::Key) : nullptr;
 }
 
+bool IsPopulationBotStaged(Player const* bot)
+{
+    BotPopulationState const* state = GetBotPopulation(bot);
+    return state && IsPopulationStaged(state->Ready, bot->GetPhaseMask());
+}
+
 bool IsPopulationTravelAllowed(Player const* bot, WorldLocation const& location)
 {
     BotPopulationState const* state = GetBotPopulation(bot);
@@ -233,7 +239,7 @@ void RandomPlayerbotMgr::PreparePopulationBot(Player* bot, BotPopulationAssignme
     if (!ai)
         return;
     ai->SetMaster(nullptr);
-    bot->SetPhaseMask(STAGING_PHASE_MASK, true);
+    bot->SetPhaseMask(BOT_POPULATION_STAGING_PHASE_MASK, true);
     if (bot->GetGroup())
         ai->LeaveOrDisbandGroup();
     if (!state->Prepared)
@@ -247,12 +253,18 @@ void RandomPlayerbotMgr::PreparePopulationBot(Player* bot, BotPopulationAssignme
                     ? assignment.ArenaLoadout : assignment.Purpose != BotPopulationPurpose::Dungeon,
                 assignment.Purpose == BotPopulationPurpose::Arena || assignment.ArenaLoadout,
                 assignment.Role, assignment.Endgame);
+        if (!PlayerbotFactory::RepairMissingEquipment(bot))
+        {
+            LOG_WARN("playerbots", "Population: {} has incomplete equipment, retrying initialization later",
+                bot->GetGUID().ToString());
+            return;
+        }
         bot->SetPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN);
         ai->Reset(true);
         state->Prepared = true;
     }
     // Nearby owners may have moved since this slot was reserved.
-    bot->SetPhaseMask(STAGING_PHASE_MASK, true);
+    bot->SetPhaseMask(BOT_POPULATION_STAGING_PHASE_MASK, true);
     if (assignment.Purpose == BotPopulationPurpose::World &&
         !FindWorldLocation(bot->GetTeamId(), state->Assignment))
     {
@@ -309,7 +321,8 @@ void RandomPlayerbotMgr::UpdatePopulation()
     struct Region
     {
         uint32 Players = 0;
-        uint32 Level = 1;
+        std::array<uint32, TEAM_NEUTRAL> FactionPlayers{};
+        std::array<uint32, TEAM_NEUTRAL> Level{1, 1};
     };
     std::map<std::pair<uint32, uint32>, Region> regions;
     std::set<ObjectGuid> onlineClients;
@@ -344,10 +357,14 @@ void RandomPlayerbotMgr::UpdatePopulation()
         auto presence = _populationOutdoorPresence.find(guid);
         if (presence == _populationOutdoorPresence.end())
             continue;
+        TeamId team = player->GetTeamId();
+        if (team != TEAM_ALLIANCE && team != TEAM_HORDE)
+            continue;
         auto const& outdoor = presence->second;
         auto& region = regions[{outdoor.Map, outdoor.Zone}];
         ++region.Players;
-        region.Level = outdoor.Level;
+        ++region.FactionPlayers[team];
+        region.Level[team] = outdoor.Level;
     }
     std::erase_if(_populationOutdoorPresence, [&](auto const& entry) { return !onlineClients.contains(entry.first); });
     std::vector<PopulationZoneDemand> zoneDemands;
@@ -357,38 +374,45 @@ void RandomPlayerbotMgr::UpdatePopulation()
         sPlayerbotAIConfig.PopulationWorldCount, sPlayerbotAIConfig.PopulationMinPerZone))
     {
         Region const& region = regions.at({quota.Map, quota.Zone});
-        BotPopulationAssignment assignment;
-        assignment.Map = quota.Map;
-        assignment.Zone = quota.Zone;
-        auto [low, high] = sTravelMgr.GetZoneLevelRange(assignment.Zone);
-        if (!high)
+        auto const [allianceBots, hordeBots] = SplitWorldPopulationByFaction(quota.Bots,
+            region.FactionPlayers[TEAM_ALLIANCE], region.FactionPlayers[TEAM_HORDE]);
+        for (TeamId team : {TEAM_ALLIANCE, TEAM_HORDE})
         {
-            AreaTableEntry const* area = sAreaTableStore.LookupEntry(assignment.Zone);
-            low = area && area->area_level > 0
-                ? std::min<uint32>(MAX_PLAYER_LEVEL, area->area_level) : region.Level;
-        }
-        assignment.Level = low;
-        uint32 ordinary = quota.Bots;
-        if (sPlayerbotAIConfig.PopulationNearbySpawns)
-            for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+            uint32 ordinary = team == TEAM_ALLIANCE ? allianceBots : hordeBots;
+            if (!ordinary)
+                continue;
+            BotPopulationAssignment assignment;
+            assignment.Map = quota.Map;
+            assignment.Zone = quota.Zone;
+            assignment.Team = team;
+            auto [low, high] = sTravelMgr.GetZoneLevelRange(assignment.Zone);
+            if (!high)
             {
-                if (!ordinary || !IsPopulationClient(player) || player->IsBeingTeleported() ||
-                    player->GetMapId() != quota.Map || player->GetMap()->Instanceable() ||
-                    player->GetZoneId() != quota.Zone)
-                    continue;
-                auto [count, inserted] = _populationNearbyCounts.try_emplace(guid, 0);
-                if (inserted)
-                    count->second = urand(1, 3);
-                BotPopulationAssignment nearby = assignment;
-                nearby.Nearby = true;
-                nearby.Owner = guid;
-                nearby.Team = player->GetTeamId();
-                uint32 slots = std::min(ordinary, count->second);
-                requests.push_back({nearby, slots});
-                ordinary -= slots;
+                AreaTableEntry const* area = sAreaTableStore.LookupEntry(assignment.Zone);
+                low = area && area->area_level > 0
+                    ? std::min<uint32>(MAX_PLAYER_LEVEL, area->area_level) : region.Level[team];
             }
-        if (ordinary)
-            requests.push_back({assignment, ordinary});
+            assignment.Level = low;
+            if (sPlayerbotAIConfig.PopulationNearbySpawns)
+                for (auto const& [guid, player] : ObjectAccessor::GetPlayers())
+                {
+                    if (!ordinary || !IsPopulationClient(player) || player->IsBeingTeleported() ||
+                        player->GetTeamId() != team || player->GetMapId() != quota.Map ||
+                        player->GetMap()->Instanceable() || player->GetZoneId() != quota.Zone)
+                        continue;
+                    auto [count, inserted] = _populationNearbyCounts.try_emplace(guid, 0);
+                    if (inserted)
+                        count->second = urand(1, 3);
+                    BotPopulationAssignment nearby = assignment;
+                    nearby.Nearby = true;
+                    nearby.Owner = guid;
+                    uint32 slots = std::min(ordinary, count->second);
+                    requests.push_back({nearby, slots});
+                    ordinary -= slots;
+                }
+            if (ordinary)
+                requests.push_back({assignment, ordinary});
+        }
     }
 
     CheckBgQueue();
@@ -402,6 +426,8 @@ void RandomPlayerbotMgr::UpdatePopulation()
                 if (!battleground)
                     continue;
                 uint32 arenaSize = BattlegroundMgr::BGArenaType(BattlegroundQueueTypeId(queueId));
+                if (!arenaSize && data.minLevel < DEFAULT_MAX_LEVEL)
+                    continue;
                 for (uint32 mode = 0; mode < (arenaSize ? 2u : 1u); ++mode)
                 {
                     uint32 realCount = arenaSize ? (mode ? data.ratedArenaPlayerCount : data.skirmishArenaPlayerCount)
@@ -676,6 +702,14 @@ void RandomPlayerbotMgr::UpdatePopulation()
         // Keep group members and prepared invitees out of relocation and retirement.
         if (retainedWorldBots.contains(id))
         {
+            if (bot && bot->IsInWorld() && bot->IsAlive() && !bot->IsInCombat() &&
+                !bot->IsBeingTeleported() && operationDue(reservation.Assignment) &&
+                !PlayerbotFactory::HasBaselineEquipment(bot))
+            {
+                PlayerbotFactory::RepairMissingEquipment(bot);
+                bot->SaveToDB(false, false);
+                finishOperation(reservation.Assignment);
+            }
             if (BotPopulationState const* state = GetBotPopulation(bot))
                 reservation.Ready = state->Ready;
             ++itr;
@@ -717,7 +751,7 @@ void RandomPlayerbotMgr::UpdatePopulation()
                     {
                         bot->CombatStop(true);
                         bot->GetMotionMaster()->Clear();
-                        bot->SetPhaseMask(STAGING_PHASE_MASK, true);
+                        bot->SetPhaseMask(BOT_POPULATION_STAGING_PHASE_MASK, true);
                         auto* state = new BotPopulationState();
                         state->Assignment = assignment;
                         bot->CustomData.Set(BotPopulationState::Key, state);
@@ -773,7 +807,7 @@ void RandomPlayerbotMgr::UpdatePopulation()
             continue;
         }
         if (bot && reservation.Ready && reservation.Assignment.Purpose == BotPopulationPurpose::World &&
-            bot->GetPhaseMask() == STAGING_PHASE_MASK && bot->IsInWorld() && !bot->IsBeingTeleported())
+            bot->GetPhaseMask() == BOT_POPULATION_STAGING_PHASE_MASK && bot->IsInWorld() && !bot->IsBeingTeleported())
         {
             auto* state = bot->CustomData.Get<BotPopulationState>(BotPopulationState::Key);
             WorldLocation location(bot->GetMapId(), bot->GetPosition());

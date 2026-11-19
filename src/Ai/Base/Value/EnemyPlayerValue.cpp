@@ -22,7 +22,9 @@ bool NearestEnemyPlayersValue::AcceptUnit(Unit* unit)
         !sPlayerbotAIConfig.IsPvpProhibited(enemy->GetZoneId(), enemy->GetAreaId()) &&
         !enemy->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NON_ATTACKABLE_2) &&
         ((inCannon || !enemy->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))) &&
-        /*!enemy->HasStealthAura() && !enemy->HasInvisibilityAura()*/ (bot->InBattleground() ? bot->CanSeeOrDetect(enemy) : enemy->CanSeeOrDetect(bot)) &&
+        /*!enemy->HasStealthAura() && !enemy->HasInvisibilityAura()*/
+        ((bot->InBattleground() || sPlayerbotAIConfig.PvpCombatTactics) ? bot->CanSeeOrDetect(enemy)
+                                                                        : enemy->CanSeeOrDetect(bot)) &&
         !(enemy->HasSpiritOfRedemptionAura()))
     {
         // If with master, only attack if master is PvP flagged
@@ -68,7 +70,8 @@ Unit* EnemyPlayerValue::Calculate()
     {
         Unit* pTarget = combatRef->GetOther(bot);
         if (!pTarget || pTarget == pVictim || !pTarget->IsPlayer() ||
-            !(bot->InBattleground() ? bot->CanSeeOrDetect(pTarget) : pTarget->CanSeeOrDetect(bot)) ||
+            !((bot->InBattleground() || sPlayerbotAIConfig.PvpCombatTactics) ? bot->CanSeeOrDetect(pTarget)
+                                                                             : pTarget->CanSeeOrDetect(bot)) ||
             !bot->IsWithinDist(pTarget, VISIBILITY_DISTANCE_NORMAL))
             continue;
 
@@ -147,7 +150,9 @@ Unit* EnemyPlayerValue::Calculate()
                 if (Unit* pAttacker = pMember->getAttackerForHelper())
                     if (pAttacker->IsPlayer() && bot->IsWithinDist(pAttacker, maxAggroDistance * 2.0f) &&
                         bot->IsWithinLOSInMap(pAttacker) && pAttacker != pVictim &&
-                        (bot->InBattleground() ? bot->CanSeeOrDetect(pAttacker) : pAttacker->CanSeeOrDetect(bot)))
+                        ((bot->InBattleground() || sPlayerbotAIConfig.PvpCombatTactics)
+                             ? bot->CanSeeOrDetect(pAttacker)
+                             : pAttacker->CanSeeOrDetect(bot)))
                         return pAttacker;
             }
         }

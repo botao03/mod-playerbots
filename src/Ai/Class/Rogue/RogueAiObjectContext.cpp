@@ -5,6 +5,7 @@
  */
 
 #include "RogueAiObjectContext.h"
+
 #include "AiObjectContext.h"
 #include "AssassinationRogueStrategy.h"
 #include "CombatRogueStrategy.h"
@@ -17,6 +18,7 @@
 #include "RogueFinishingActions.h"
 #include "RogueOpeningActions.h"
 #include "RogueTriggers.h"
+#include "SubtletyRogueStrategy.h"
 
 class RogueStrategyFactoryInternal : public NamedObjectContext<Strategy>
 {
@@ -49,13 +51,13 @@ public:
     {
         creators["combat"] = &RogueCombatStrategyFactoryInternal::combat;
         creators["assassin"] = &RogueCombatStrategyFactoryInternal::assassin;
-        // creators["subtlety"] = &RogueCombatStrategyFactoryInternal::subtlety;
+        creators["subtlety"] = &RogueCombatStrategyFactoryInternal::subtlety;
     }
 
 private:
     static Strategy* combat(PlayerbotAI* botAI) { return new CombatRogueStrategy(botAI); }
     static Strategy* assassin(PlayerbotAI* botAI) { return new AssassinationRogueStrategy(botAI); }
-    // static Strategy* subtlety(PlayerbotAI* botAI) { return new SubtletyRogueStrategy(botAI); }
+    static Strategy* subtlety(PlayerbotAI* botAI) { return new SubtletyRogueStrategy(botAI); }
 };
 
 class RogueTriggerFactoryInternal : public NamedObjectContext<Trigger>
@@ -75,6 +77,7 @@ public:
         creators["in stealth"] = &RogueTriggerFactoryInternal::in_stealth;
         creators["no stealth"] = &RogueTriggerFactoryInternal::no_stealth;
         creators["stealth"] = &RogueTriggerFactoryInternal::stealth;
+        creators["pvp stealth"] = [](PlayerbotAI* botAI) { return new PvpStealthTrigger(botAI); };
         creators["sprint"] = &RogueTriggerFactoryInternal::sprint;
         creators["main hand weapon no enchant"] =
             &RogueTriggerFactoryInternal::main_hand_weapon_no_enchant;
@@ -127,6 +130,7 @@ public:
         creators["riposte"] = &RogueAiObjectContextInternal::riposte;
         creators["mutilate"] = &RogueAiObjectContextInternal::mutilate;
         creators["sinister strike"] = &RogueAiObjectContextInternal::sinister_strike;
+        creators["hemorrhage"] = [](PlayerbotAI* botAI) { return new CastMeleeSpellAction(botAI, "hemorrhage"); };
         creators["gouge"] = &RogueAiObjectContextInternal::gouge;
         creators["kidney shot"] = &RogueAiObjectContextInternal::kidney_shot;
         creators["rupture"] = &RogueAiObjectContextInternal::rupture;

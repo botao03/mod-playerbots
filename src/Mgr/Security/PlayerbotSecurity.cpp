@@ -185,7 +185,7 @@ bool PlayerbotSecurity::CheckLevelFor(PlayerbotSecurityLevel level, bool silent,
         return true;
 
     PlayerbotAI* fromBotAI = GET_PLAYERBOT_AI(from);
-    if (silent || (fromBotAI && !IsSelfBot(from)))
+    if (silent || sPlayerbotAIConfig.DisableWhispers || (fromBotAI && !IsSelfBot(from)))
         return false;
 
     PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
@@ -288,7 +288,7 @@ bool PlayerbotSecurity::CheckLevelFor(PlayerbotSecurityLevel level, bool silent,
 
         // Additional protection against crashes during logout
         if (bot->IsInWorld() && from->IsInWorld())
-            bot->Whisper(text, LANG_UNIVERSAL, from);
+            botAI->Whisper(text, from);
     }
 
     return false;

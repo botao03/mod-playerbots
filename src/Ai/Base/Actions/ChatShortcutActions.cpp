@@ -67,10 +67,12 @@ bool FollowChatShortcutAction::Execute(Event /*event*/)
     {
         Formation* formation = AI_VALUE(Formation*, "formation");
         std::string const target = formation->GetTargetName();
+        float const followRadius = formation->GetProximityFollowRadius();
         bool moved = false;
         if (!target.empty())
             moved = Follow(AI_VALUE(Unit*, target));
-        else
+        else if (followRadius <= 0.0f ||
+                 (bot->IsInMap(master) && bot->GetExactDistSq(master) > followRadius * followRadius))
         {
             WorldLocation loc = formation->GetLocation();
             if (Formation::IsNullLocation(loc) || loc.GetMapId() == MAPID_INVALID)

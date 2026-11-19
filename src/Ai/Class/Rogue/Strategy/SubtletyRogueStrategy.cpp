@@ -6,30 +6,16 @@
 
 #include "SubtletyRogueStrategy.h"
 
- // To be implemented. For now, Subtlety uses Assassination's strategy (poorly).
-/* class SubtletyRogueStrategyActionNodeFactory : public NamedObjectFactory<ActionNode>
-{
-public:
-    SubtletyRogueStrategyActionNodeFactory()
-    {
-    }
+#include "Playerbots.h"
+#include "PvpCombatTriggers.h"
 
-private:
-};
-
-SubtletyRogueStrategy::SubtletyRogueStrategy(PlayerbotAI* botAI) : GenericRogueStrategy(botAI)
+void SubtletyRogueStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    actionNodeFactories.Add(new SubtletyRogueStrategyActionNodeFactory());
+    AssassinationRogueStrategy::InitTriggers(triggers);
+
+    triggers.push_back(
+        new TriggerNode(PvpTriggerName(PvpSituation::MeleePressure),
+                        {NextAction("pvp target spell::pvp melee pressure|eviscerate", ACTION_HIGH + 6),
+                         NextAction("backstab", ACTION_HIGH + 2), NextAction("hemorrhage", ACTION_HIGH + 1),
+                         NextAction("sinister strike", ACTION_HIGH)}));
 }
-
-std::vector<NextAction> SubtletyRogueStrategy::getDefaultActions()
-{
-    return {
-    };
-}
-
-void SubtletyRogueStrategyRogueStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
-{
-    GenericRogueStrategy::InitTriggers(triggers);
-}
-*/

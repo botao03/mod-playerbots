@@ -5,7 +5,10 @@
  */
 
 #include "AcceptDuelAction.h"
+
 #include "Event.h"
+#include "LastMovementValue.h"
+#include "MotionMaster.h"
 #include "Playerbots.h"
 
 bool AcceptDuelAction::Execute(Event event)
@@ -16,6 +19,11 @@ bool AcceptDuelAction::Execute(Event event)
     p >> flagGuid;
     ObjectGuid playerGuid;
     p >> playerGuid;
+
+    // A rejected request may still be queued after its duel has been cleared.
+    if (!bot->duel || bot->GetGuidValue(PLAYER_DUEL_ARBITER) != flagGuid ||
+        bot->duel->Initiator->GetGUID() != playerGuid)
+        return false;
 
     // Do not auto duel with low health
     if ((!botAI->HasGameClientMaster() ||
@@ -32,6 +40,17 @@ bool AcceptDuelAction::Execute(Event event)
     packet << flagGuid;
     bot->GetSession()->HandleDuelAcceptedOpcode(packet);
 
+    if (!IsAcceptedDuel(bot))
+        return false;
+
+    bot->GetMotionMaster()->Clear();
+    bot->StopMoving();
+    AI_VALUE(LastMovement&, "last movement").clear();
+    if (bot->IsMounted() && !bot->IsFlying())
+    {
+        WorldPacket cancelMount;
+        bot->GetSession()->HandleCancelMountAuraOpcode(cancelMount);
+    }
     botAI->ResetStrategies();
     return true;
 }

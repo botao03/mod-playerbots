@@ -40,7 +40,7 @@ void TellRpgStatusAction::WhisperStatusChange(Player* owner, std::string const& 
     std::string msg = PlayerbotTextMgr::instance().GetBotTextOrDefault(
         RPG_STATUS_CHANGED_KEY, RPG_STATUS_CHANGED_DEFAULT,
         {{"%status", statusName}});
-    bot->Whisper(msg, LANG_UNIVERSAL, owner);
+    botAI->Whisper(msg, owner);
 }
 
 bool TellRpgStatusAction::Execute(Event event)
@@ -53,7 +53,7 @@ bool TellRpgStatusAction::Execute(Event event)
     if (text.empty())
     {
         std::string out = botAI->rpgInfo.ToString();
-        bot->Whisper(out.c_str(), LANG_UNIVERSAL, owner);
+        botAI->Whisper(out, owner);
         return true;
     }
 
@@ -65,7 +65,7 @@ bool TellRpgStatusAction::Execute(Event event)
         std::string msg = PlayerbotTextMgr::instance().GetBotTextOrDefault(
             "rpg_debug_permission_error",
             "Only your master or a GM can change my rpg status.", {});
-        bot->Whisper(msg, LANG_UNIVERSAL, owner);
+        botAI->Whisper(msg, owner);
         return false;
     }
 
@@ -122,7 +122,7 @@ bool TellRpgStatusAction::Execute(Event event)
         {
             std::string msg = PlayerbotTextMgr::instance().GetBotTextOrDefault(
                 "rpg_no_grind_pos_error", "No grind position available.", {});
-            bot->Whisper(msg, LANG_UNIVERSAL, owner);
+            botAI->Whisper(msg, owner);
             return false;
         }
         info.ChangeToGoGrind(pos);
@@ -136,7 +136,7 @@ bool TellRpgStatusAction::Execute(Event event)
         {
             std::string msg = PlayerbotTextMgr::instance().GetBotTextOrDefault(
                 "rpg_no_camp_pos_error", "No camp position available.", {});
-            bot->Whisper(msg, LANG_UNIVERSAL, owner);
+            botAI->Whisper(msg, owner);
             return false;
         }
         info.ChangeToGoCamp(pos);
@@ -152,7 +152,7 @@ bool TellRpgStatusAction::Execute(Event event)
         {
             std::string msg = PlayerbotTextMgr::instance().GetBotTextOrDefault(
                 "rpg_no_flight_path_error", "No flight path available.", {});
-            bot->Whisper(msg, LANG_UNIVERSAL, owner);
+            botAI->Whisper(msg, owner);
             return false;
         }
         info.ChangeToTravelFlight(flightMasterEntry, flightMasterPos, std::move(path));
@@ -171,7 +171,7 @@ bool TellRpgStatusAction::Execute(Event event)
         {
             std::string msg = PlayerbotTextMgr::instance().GetBotTextOrDefault(
                 "rpg_gather_no_profession_error", "I have neither Herbalism nor Mining, so I can't gather.", {});
-            bot->Whisper(msg, LANG_UNIVERSAL, owner);
+            botAI->Whisper(msg, owner);
             return false;
         }
         info.ChangeToDoGather();
@@ -199,7 +199,7 @@ bool TellRpgStatusAction::Execute(Event event)
         {
             std::string msg = PlayerbotTextMgr::instance().GetBotTextOrDefault(
                 "rpg_no_quest_error", "No quest available; use 'do quest <id>'.", {});
-            bot->Whisper(msg, LANG_UNIVERSAL, owner);
+            botAI->Whisper(msg, owner);
             return false;
         }
         Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
@@ -209,7 +209,7 @@ bool TellRpgStatusAction::Execute(Event event)
             std::string msg = PlayerbotTextMgr::instance().GetBotTextOrDefault(
                 "rpg_invalid_quest_error", "Invalid quest %quest_id",
                 {{"%quest_id", std::to_string(questId)}});
-            bot->Whisper(msg, LANG_UNIVERSAL, owner);
+            botAI->Whisper(msg, owner);
             return false;
         }
         info.ChangeToDoQuest(questId, quest);
@@ -221,7 +221,7 @@ bool TellRpgStatusAction::Execute(Event event)
         "rpg_unknown_status_error",
         "Unknown rpg status. Options: idle, rest, wander random, wander npc, "
         "go grind, go camp, do quest [<id>], travel flight, outdoor pvp, do gather.", {});
-    bot->Whisper(msg, LANG_UNIVERSAL, owner);
+    botAI->Whisper(msg, owner);
     return false;
 }
 
@@ -238,10 +238,10 @@ bool StartRpgDoQuestAction::Execute(Event event)
     if (quest)
     {
         botAI->rpgInfo.ChangeToDoQuest(questId, quest);
-        bot->Whisper("Start to do quest " + std::to_string(questId), LANG_UNIVERSAL, owner);
+        botAI->Whisper("Start to do quest " + std::to_string(questId), owner);
         return true;
     }
-    bot->Whisper("Invalid quest " + text, LANG_UNIVERSAL, owner);
+    botAI->Whisper("Invalid quest " + text, owner);
     return false;
 }
 

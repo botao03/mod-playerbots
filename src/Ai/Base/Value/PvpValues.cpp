@@ -12,6 +12,7 @@
 #include "BattleGroundTactics.h"
 #include "PositionValue.h"
 #include "Spell.h"
+#include "StrandOfTheAncientsActions.h"
 #include <map>
 #include "Playerbots.h"
 #include "ServerFacade.h"
@@ -115,12 +116,46 @@ ObjectGuid BattlegroundTargetValue::Calculate()
         bg->GetStatus() != STATUS_IN_PROGRESS || !bot->IsAlive() || bot->GetVehicle())
         return ObjectGuid::Empty;
 
+    BattlegroundSA* strand = bg->ToBattlegroundSA();
+    bool strandDefense = strand && strand->GetAttackerTeam() != bot->GetTeamId();
+    Unit* currentTarget = strandDefense && !_control ? AI_VALUE(Unit*, "current target") : nullptr;
+    float targetRange = _control ? 30.0f : (strandDefense ? 75.0f : 55.0f);
+
     std::map<ObjectGuid, uint32> assists;
     for (ObjectGuid guid : AI_VALUE(GuidVector, "closest friendly players"))
         if (Unit* friendly = botAI->GetUnit(guid))
             if (friendly != bot && friendly->IsAlive() && bot->IsWithinDistInMap(friendly, 60.0f))
                 if (Unit* victim = friendly->GetVictim())
                     ++assists[victim->GetGUID()];
+
+    if (strandDefense && !_control)
+    {
+        ObjectGuid demolisherTarget;
+        float bestScore = 0.0f;
+        for (uint32 index = BG_SA_DEMOLISHER_1; index <= BG_SA_DEMOLISHER_8; ++index)
+        {
+            Creature* vehicle = strand->GetBgMap()->GetCreature(strand->BgCreatures[index]);
+            if (!vehicle || !vehicle->IsAlive() || !bot->IsWithinDistInMap(vehicle, targetRange) ||
+                !bot->IsValidAttackTarget(vehicle) || !bot->IsWithinLOSInMap(vehicle) ||
+                vehicle->HasBreakableByDamageCrowdControlAura())
+                continue;
+
+            ObjectGuid guid = vehicle->GetGUID();
+            float score = 175.0f + std::min(assists[guid], 5u) * 120.0f -
+                vehicle->GetHealthPct() * 0.5f - bot->GetDistance2d(vehicle);
+            if (vehicle->IsCharmed())
+                score += 2500.0f;
+            if (vehicle == currentTarget)
+                score += 25.0f;
+            if (score > bestScore)
+            {
+                demolisherTarget = guid;
+                bestScore = score;
+            }
+        }
+        if (demolisherTarget)
+            return demolisherTarget;
+    }
 
     Unit* enemyCarrier = AI_VALUE(Unit*, "enemy flag carrier");
     Unit* teamCarrier = AI_VALUE(Unit*, "team flag carrier");
@@ -132,8 +167,8 @@ ObjectGuid BattlegroundTargetValue::Calculate()
         Unit* enemy = botAI->GetUnit(guid);
         if (!enemy || !enemy->IsAlive() || !bot->IsValidAttackTarget(enemy) ||
             !bot->CanSeeOrDetect(enemy) || !bot->IsWithinLOSInMap(enemy) ||
-            !bot->IsWithinDistInMap(enemy, _control ? 30.0f : 55.0f) ||
-            enemy->HasBreakableByDamageCrowdControlAura())
+            !bot->IsWithinDistInMap(enemy, targetRange) ||
+            enemy->HasBreakableByDamageCrowdControlAura() || (strandDefense && IsStrandDockTarget(*bot, *enemy)))
             continue;
         bool capturing = false;
         for (CurrentSpellTypes type : {CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL})
@@ -150,29 +185,14 @@ ObjectGuid BattlegroundTargetValue::Calculate()
             score += _control ? 800.0f : 80.0f;
         if (nearObjective)
             score += 150.0f;
+        if (enemy == currentTarget)
+            score += 200.0f;
         score -= bot->GetDistance2d(enemy);
         if (score > bestScore || (score == bestScore && guid < best))
         {
             best = guid;
             bestScore = score;
         }
-    }
-    if (!_control && RealBgType(bot) == BATTLEGROUND_SA)
-    {
-        auto* strand = static_cast<BattlegroundSA*>(bg);
-        if (strand->GetAttackerTeam() != bot->GetTeamId())
-            for (uint32 index = BG_SA_DEMOLISHER_1; index <= BG_SA_DEMOLISHER_8; ++index)
-                if (Creature* vehicle = bg->GetBgMap()->GetCreature(bg->BgCreatures[index]))
-                    if (vehicle->IsAlive() && bot->IsValidAttackTarget(vehicle) &&
-                        bot->IsWithinDistInMap(vehicle, 45.0f) && bot->IsWithinLOSInMap(vehicle))
-                    {
-                        float score = 2500.0f - vehicle->GetHealthPct() - bot->GetDistance2d(vehicle);
-                        if (score > bestScore)
-                        {
-                            best = vehicle->GetGUID();
-                            bestScore = score;
-                        }
-                    }
     }
     return best;
 }

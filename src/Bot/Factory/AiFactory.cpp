@@ -380,6 +380,8 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
         case CLASS_ROGUE:
             if (tab == ROGUE_TAB_COMBAT)
                 engine->addStrategiesNoInit("combat", nullptr);
+            else if (sPlayerbotAIConfig.PvpCombatTactics && tab == ROGUE_TAB_SUBTLETY)
+                engine->addStrategy("subtlety", false);
             else // if (tab == ROGUE_TAB_ASSASSINATION || tab == ROGUE_TAB_SUBTLETY)
                 engine->addStrategiesNoInit("assassin", nullptr);
             engine->addStrategiesNoInit("dps assist", "aoe", nullptr);

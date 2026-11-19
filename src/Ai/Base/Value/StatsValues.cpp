@@ -44,25 +44,16 @@ bool IsDeadValue::Calculate()
 
 bool PetIsDeadValue::Calculate()
 {
-    if ((bot->GetLevel() < 10 && bot->getClass() == CLASS_HUNTER) || bot->IsMounted())
-    {
+    if (bot->GetLevel() < 10 || bot->IsMounted())
         return false;
-    }
 
-    if (!bot->GetPet())
-    {
-        uint32 ownerid = bot->GetGUID().GetCounter();
-        QueryResult result = CharacterDatabase.Query("SELECT id FROM character_pet WHERE owner = {}", ownerid);
-        if (!result)
-            return false;
+    if (Pet* pet = bot->GetPet())
+        return !pet->isBeingLoaded() && !pet->IsAlive();
 
-        return true;
-    }
-
-    if (bot->GetPetGUID() && !bot->GetPet())
-        return true;
-
-    return bot->GetPet() && bot->GetPet()->getDeathState() != DeathState::Alive;
+    PetStable const* stable = bot->GetPetStable();
+    PetStable::PetInfo const* savedPet = stable ?
+        (stable->CurrentPet ? &*stable->CurrentPet : stable->GetUnslottedHunterPet()) : nullptr;
+    return savedPet && savedPet->Type == HUNTER_PET && !savedPet->Health;
 }
 
 bool PetIsHappyValue::Calculate() { return !bot->GetPet() || bot->GetPet()->GetHappinessState() == HAPPY; }

@@ -9,6 +9,7 @@
 #include "BattleGroundTactics.h"
 #include "AttackAction.h"
 #include "Spell.h"
+#include "StrandOfTheAncientsActions.h"
 
 void BGStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
@@ -99,7 +100,12 @@ void CoordinatedBattlegroundStrategy::InitTriggers(std::vector<TriggerNode*>& tr
 
 void StrandStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("timer", {NextAction("enter vehicle", ACTION_BG + 1)}));
+    triggers.push_back(new TriggerNode("timer", {NextAction("strand prepare", ACTION_MOVE + 4)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("strand capture", ACTION_RAID + 4)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("strand vehicle", ACTION_RAID + 3)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("strand regroup", ACTION_RAID + 3)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("strand bomb", ACTION_MOVE + 3)}));
+    triggers.push_back(new TriggerNode("bg active", {NextAction("bg move to objective", ACTION_MOVE + 1)}));
     triggers.push_back(new TriggerNode("bg active", {NextAction("ram", ACTION_NORMAL + 1)}));
     triggers.push_back(new TriggerNode("bg active", {NextAction("hurl boulder", ACTION_NORMAL)}));
 }
@@ -117,7 +123,8 @@ float BattlegroundCoordinationMultiplier::GetValue(Action* action)
         for (CurrentSpellTypes type : {CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL})
             if (Spell* spell = bot->GetCurrentSpell(type))
                 if (spell->m_spellInfo->Id == SPELL_CAPTURE_BANNER)
-                    return dynamic_cast<BGTactics*>(action) ? 1.0f : 0.0f;
+                    return (dynamic_cast<BGTactics*>(action) || dynamic_cast<StrandCaptureAction*>(action))
+                        ? 1.0f : 0.0f;
     if (action->getThreatType() == Action::ActionThreatType::Aoe &&
         !AI_VALUE(GuidVector, "bg protected crowd control").empty())
         return 0.0f;

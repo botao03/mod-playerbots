@@ -42,8 +42,17 @@ bool LowEnergyTrigger::IsActive()
 
 bool NoPetTrigger::IsActive()
 {
+    if (AI_VALUE2(bool, "mounted", "self target"))
+        return false;
+
+    if (bot->getClass() == CLASS_MAGE)
+    {
+        Guardian* elemental = bot->GetGuardianPet();
+        return !elemental || !elemental->IsAlive();
+    }
+
     return bot->GetMinionGUID().IsEmpty() && !AI_VALUE(Unit*, "pet target") && !bot->GetGuardianPet() &&
-           !bot->GetFirstControlled() && !AI_VALUE2(bool, "mounted", "self target");
+           !bot->GetFirstControlled();
 }
 
 bool HasPetTrigger::IsActive()
@@ -658,6 +667,22 @@ bool StayTimeTrigger::IsActive()
 }
 
 bool IsMountedTrigger::IsActive() { return AI_VALUE2(bool, "mounted", "self target"); }
+
+bool MasterMountStateTrigger::IsActive()
+{
+    Player* master = botAI->GetMaster();
+    if (!master || master == bot || !botAI->HasGameClientMaster() || !bot->GetGroup() ||
+        bot->GetGroup() != master->GetGroup() || !bot->IsInMap(master) || bot->InBattleground() || bot->IsInCombat())
+        return false;
+
+    auto isMountedOrTravelForm = [](Player const* player)
+    {
+        ShapeshiftForm const form = player->GetShapeshiftForm();
+        return player->IsMounted() || form == FORM_TRAVEL || form == FORM_FLIGHT || form == FORM_FLIGHT_EPIC;
+    };
+
+    return isMountedOrTravelForm(master) != isMountedOrTravelForm(bot);
+}
 
 bool CorpseNearTrigger::IsActive()
 {

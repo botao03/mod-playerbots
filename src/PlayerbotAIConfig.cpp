@@ -302,6 +302,7 @@ bool PlayerbotAIConfig::Initialize()
     RandomBotEmote = sConfigMgr->GetOption<bool>("Playerbots.RandomBotEmote", false);
     RandomBotSuggestDungeons = sConfigMgr->GetOption<bool>("Playerbots.RandomBotSuggestDungeons", true);
     RandomBotSayWithoutMaster = sConfigMgr->GetOption<bool>("Playerbots.RandomBotSayWithoutMaster", false);
+    DisableWhispers = sConfigMgr->GetOption<bool>("Playerbots.DisableWhispers", false);
     AnnounceConsumableUse = sConfigMgr->GetOption<bool>("Playerbots.AnnounceConsumableUse", true);
 
     // broadcastChanceMaxValue is used in urand(1, broadcastChanceMaxValue) for broadcasts,
@@ -637,6 +638,10 @@ bool PlayerbotAIConfig::Initialize()
     // SPP switches
     EnableGreet = sConfigMgr->GetOption<bool>("Playerbots.EnableGreet", true);
     SummonWhenGroup = sConfigMgr->GetOption<bool>("Playerbots.SummonWhenGroup", true);
+    FollowLeaderTeleport = sConfigMgr->GetOption<bool>("Playerbots.FollowLeaderTeleport", false);
+    FollowGroupOutOfSight = sConfigMgr->GetOption<bool>("Playerbots.FollowGroupOutOfSight", false);
+    AutoTrainRiding = sConfigMgr->GetOption<bool>("Playerbots.AutoTrainRiding", false);
+    WaitForFlyingMaster = sConfigMgr->GetOption<bool>("Playerbots.WaitForFlyingMaster", false);
     RandomBotFixedLevel = sConfigMgr->GetOption<bool>("Playerbots.RandomBotFixedLevel", false);
     PopulationEnabled = sConfigMgr->GetOption<bool>("Playerbots.Population.Enabled", false);
     PopulationWorldCount = sConfigMgr->GetOption<uint32>("Playerbots.Population.WorldCount", 50);

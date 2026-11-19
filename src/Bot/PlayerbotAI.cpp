@@ -5,14 +5,18 @@
  */
 
 #include "BotPopulation.h"
+#include "BotPopulationPolicy.h"
 #include "PlayerbotAI.h"
 #include "InstanceExitCleanup.h"
 #include "AiFactory.h"
+#include "BattlegroundSA.h"
 #include "BudgetValues.h"
+#include "CellImpl.h"
 #include "ChannelMgr.h"
 #include "CharacterPackets.h"
 #include "ChatHelper.h"
 #include "CheckMountStateAction.h"
+#include "GroupTeleportFollow.h"
 #include "Common.h"
 #include "CreatureData.h"
 #include "DBCStores.h"
@@ -22,6 +26,8 @@
 #include "ExternalEventHelper.h"
 #include "GameObjectData.h"
 #include "GameTime.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "GuildMgr.h"
 #include "LFGMgr.h"
 #include "LastMovementValue.h"
@@ -51,6 +57,7 @@
 #include "ServerFacade.h"
 #include "SharedDefines.h"
 #include "SocialMgr.h"
+#include "Spell.h"
 #include "SpellAuraEffects.h"
 #include "SpellInfo.h"
 #include "Transport.h"
@@ -68,7 +75,138 @@ constexpr uint32 SPELL_TITAN_GRIP = 49152;
 constexpr uint32 SPELL_DK_FROST_PRESENCE = 48263;
 constexpr uint32 SPELL_GRAVITY_LAPSE_TK = 39432;
 constexpr uint32 SPELL_GRAVITY_LAPSE_MGT = 44226;
+constexpr uint32 SPELL_MAGE_DEEP_FREEZE = 44572;
 constexpr uint32 VEHICLE_FLAG_FIXED_POSITION = 0x00200000;
+WorldLocation const STRAND_BEACH_LANDING(MAP_STRAND_OF_THE_ANCIENTS, 1600.381f, -106.263f, 8.8745f, 3.78f);
+
+bool CanAffectExplicitPvpTarget(Unit* caster, SpellInfo const& spell, Unit* target)
+{
+    if (target == caster || !target->IsControlledByPlayer() || spell.IsPositive() || !spell.NeedsExplicitUnitTarget())
+        return true;
+
+    return spell.CheckTargetCreatureType(target) &&
+           (spell.Id == SPELL_MAGE_DEEP_FREEZE || !target->IsImmunedToSpell(&spell, caster));
+}
+
+SpellEffectInfo const* GetPvpAreaFearEffect(PlayerbotAI& ai, SpellInfo const& spell, Unit* target)
+{
+    if (spell.Mechanic != MECHANIC_FEAR || spell.NeedsExplicitUnitTarget())
+        return nullptr;
+
+    Player* bot = ai.GetBot();
+    if (!bot->InBattleground())
+    {
+        if (target == bot)
+            target = ai.GetAiObjectContext()->GetValue<Unit*>("current target")->Get();
+        if (bot->duel && bot->duel->State == DUEL_STATE_IN_PROGRESS)
+            target = bot->duel->Opponent;
+        if (!target)
+            target = bot->getAttackerForHelper();
+        if (!target || !target->IsControlledByPlayer())
+            return nullptr;
+    }
+
+    for (SpellEffectInfo const& effect : spell.Effects)
+        if (effect.IsAura(SPELL_AURA_MOD_FEAR) && (effect.TargetA.GetTarget() == TARGET_UNIT_SRC_AREA_ENEMY ||
+                                                 effect.TargetB.GetTarget() == TARGET_UNIT_SRC_AREA_ENEMY))
+            return &effect;
+
+    return nullptr;
+}
+
+bool HasAreaFearTarget(Player* bot, SpellInfo const& spell, SpellEffectInfo const& effect, Unit* target)
+{
+    float const radius = effect.CalcRadius(bot);
+    if (radius <= 0.0f)
+        return true;
+
+    Acore::WorldObjectSpellAreaTargetCheck areaCheck(radius, bot, bot, bot, &spell, TARGET_CHECK_ENEMY,
+                                                     effect.ImplicitTargetConditions,
+                                                     Acore::WorldObjectSpellAreaTargetSearchReason::Area,
+                                                     TARGET_REFERENCE_TYPE_SRC);
+    auto canFear = [&](WorldObject* object)
+    {
+        Unit* enemy = object->ToUnit();
+        return enemy && areaCheck(enemy) && !enemy->IsImmunedToSpellEffect(&spell, effect.EffectIndex, bot) &&
+               !enemy->IsImmunedToSpell(&spell, bot);
+    };
+    if (target != bot && bot->InSamePhase(target) && canFear(target))
+        return true;
+
+    WorldObject* enemy = nullptr;
+    Acore::WorldObjectSearcher<decltype(canFear)> searcher(bot, enemy, canFear,
+                                                         GRID_MAP_TYPE_MASK_PLAYER | GRID_MAP_TYPE_MASK_CREATURE);
+    Cell::VisitObjects(bot, searcher, radius);
+    return enemy != nullptr;
+}
+
+class SpellSelectionGuard
+{
+public:
+    explicit SpellSelectionGuard(Player* player) : _player(player), _selection(player->GetTarget()) {}
+    ~SpellSelectionGuard() { _player->SetSelection(_selection); }
+
+private:
+    Player* _player;
+    ObjectGuid _selection;
+};
+
+enum class StrandBoatState
+{
+    None,
+    Waiting,
+    Landing
+};
+
+StrandBoatState HandleStrandBoat(Player* bot)
+{
+    Battleground* battleground = bot->GetBattleground();
+    BattlegroundSA* strand = battleground ? battleground->ToBattlegroundSA() : nullptr;
+    if (!strand || IsSelfBot(bot) || !bot->IsAlive() || bot->GetVehicle() ||
+        strand->GetStatus() == STATUS_WAIT_LEAVE || strand->GetAttackerTeam() != bot->GetTeamId())
+        return StrandBoatState::None;
+    if (!strand->IsRoundInProgress() && !strand->IsRoundPreparation())
+        return StrandBoatState::None;
+    if (strand->IsRoundInProgress() && !bot->GetTransport())
+        return StrandBoatState::None;
+
+    constexpr float BOARDING_DISTANCE = 30.0f;
+    Transport* boat = nullptr;
+    for (uint32 index : {BG_SA_BOAT_ONE, BG_SA_BOAT_TWO})
+        if (GameObject* object = strand->GetBGObject(index))
+            if (Transport* transport = object->ToTransport())
+            {
+                if (bot->GetTransport() == transport)
+                {
+                    boat = transport;
+                    break;
+                }
+                if (strand->IsRoundPreparation() && bot->IsWithinDistInMap(transport, BOARDING_DISTANCE) &&
+                    (!boat || bot->GetExactDistSq(transport) < bot->GetExactDistSq(boat)))
+                    boat = transport;
+            }
+    if (!boat)
+        return StrandBoatState::None;
+
+    if (strand->IsRoundInProgress())
+    {
+        bot->GetMotionMaster()->Clear();
+        bot->StopMovingOnCurrentPos();
+        boat->RemovePassenger(bot, true);
+        bot->TeleportTo(STRAND_BEACH_LANDING);
+        return StrandBoatState::Landing;
+    }
+
+    // Clientless passengers must stay attached until the landing phase, even if a deck ray misses.
+    if (bot->GetTransport() != boat || bot->isMoving())
+    {
+        bot->GetMotionMaster()->Clear();
+        if (bot->GetTransport() != boat)
+            boat->AddPassenger(bot, true);
+        bot->StopMovingOnCurrentPos();
+    }
+    return StrandBoatState::Waiting;
+}
 }
 
 std::vector<std::string> PlayerbotAI::dispel_whitelist = {
@@ -265,6 +403,16 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     if (bot->CustomData.Get<InstanceExitCleanupState>(InstanceExitCleanupState::Key))
         return;
 
+    if (BattlegroundSA::IsCombatPaused(bot->FindMap()))
+        return;
+
+    StrandBoatState const strandBoat = HandleStrandBoat(bot);
+    if (strandBoat == StrandBoatState::Landing)
+    {
+        YieldThread(bot, GetReactDelay());
+        return;
+    }
+
     // Bots send no movement opcodes, so m_lastFallZ stays frozen and Player::IsFalling() (a Z test
     // against it) blocks LFG teleports. Unit::IsFalling() is the flag test, so real falls keep theirs.
     if (!bot->Unit::IsFalling())
@@ -416,7 +564,7 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     else
         nextTransportCheck = 0;
 
-    if (!nextTransportCheck)
+    if (!nextTransportCheck && strandBoat != StrandBoatState::Waiting)
     {
         nextTransportCheck = 1000;
         Transport* newTransport = bot->GetMap()->GetTransportForPos(bot->GetPhaseMask(), bot->GetPositionX(),
@@ -524,22 +672,8 @@ void PlayerbotAI::UpdateAIGroupMaster()
             botAI->SetMaster(newMaster);
             botAI->ResetStrategies();
 
-            if (!bot->InBattleground())
-            {
-                botAI->ChangeStrategy("+follow", BOT_STATE_NON_COMBAT);
-
-                if (botAI->GetMaster() == botAI->GetGroupLeader())
-                    botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                        "hello_follow", "Hello, I follow you!", {}));
-                else
-                    botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                        "hello", "Hello!", {}));
-            }
-            else
-            {
-                // we're in a battleground, stay with the pack and focus on objective
-                botAI->ChangeStrategy("-follow", BOT_STATE_NON_COMBAT);
-            }
+            // In battlegrounds, stay with the pack and focus on objectives.
+            botAI->ChangeStrategy(bot->InBattleground() ? "-follow" : "+follow", BOT_STATE_NON_COMBAT);
         }
     }
 }
@@ -556,9 +690,10 @@ void PlayerbotAI::UpdateAIInternal([[maybe_unused]] uint32 elapsed, bool minimal
     if (!bot->GetMap())
         return; // instances are created and destroyed on demand
 
+    // Activity bots stay hidden while queueing but must still process queue actions and invitations.
     if (BotPopulationState const* population = GetBotPopulation(bot))
         if (!population->Ready || (population->Assignment.Purpose == BotPopulationPurpose::World &&
-            bot->GetPhaseMask() != PHASEMASK_NORMAL))
+            IsPopulationBotStaged(bot)))
             return;
 
     // kinda expensive call to make on every single updateAI, do we really need this information?
@@ -630,7 +765,8 @@ void PlayerbotAI::UpdateAIInternal([[maybe_unused]] uint32 elapsed, bool minimal
     masterIncomingPacketHandlers.Handle(helper);
     masterOutgoingPacketHandlers.Handle(helper);
 
-    DoNextAction(minimal);
+    if (!IsWaitingForFlyingMaster(bot))
+        DoNextAction(minimal);
 
     if (pmo)
         pmo->finish();
@@ -928,6 +1064,20 @@ void PlayerbotAI::HandleTeleportAck()
             bot->StopMoving();
         }
 
+        if (Battleground* battleground = bot->GetBattleground())
+            if (battleground->ToBattlegroundSA())
+            {
+                if (bot->GetPhaseMask() & BOT_POPULATION_STAGING_PHASE_MASK)
+                    bot->SetPhaseMask(PHASEMASK_NORMAL, true);
+                PositionMap& positions = aiObjectContext->GetValue<PositionMap&>("position")->Get();
+                positions["bg objective"].Reset();
+                positions["bg siege"].Reset();
+                aiObjectContext->GetValue<GuidVector>("nearest vehicles")->Reset();
+                Reset(true);
+                ResetStrategies();
+                bot->UpdateObjectVisibility(true);
+            }
+
         // simulate near teleport latency
         SetNextCheckDelay(urand(1000, 2000));
         return;
@@ -1090,6 +1240,9 @@ void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fro
 
     if (filtered.substr(0, 6) == "debug ")
     {
+        if (type == CHAT_MSG_WHISPER && sPlayerbotAIConfig.DisableWhispers)
+            return;
+
         std::string const response = HandleRemoteCommand(filtered.substr(6));
         WorldPacket data;
         ChatHandler::BuildChatPacket(data, (ChatMsg)type, type == CHAT_MSG_ADDON ? LANG_ADDON : LANG_UNIVERSAL, bot,
@@ -1156,7 +1309,7 @@ void PlayerbotAI::HandleCommand(uint32 type, std::string const text, Player* fro
             {
                 std::string message = PlayerbotTextMgr::instance().GetBotTextOrDefault(
                     "bot_not_your_master", "You are not my master!", {});
-                bot->Whisper(message, LANG_UNIVERSAL, fromPlayer);
+                Whisper(message, fromPlayer);
             }
             return;
         }
@@ -3126,21 +3279,15 @@ bool PlayerbotAI::Say(std::string const& msg)
 
 bool PlayerbotAI::Whisper(std::string const& msg, std::string const& receiverName)
 {
-    const auto receiver = ObjectAccessor::FindPlayerByName(receiverName);
-    if (!receiver)
-    {
+    return Whisper(msg, ObjectAccessor::FindPlayerByName(receiverName));
+}
+
+bool PlayerbotAI::Whisper(std::string_view message, Player* receiver)
+{
+    if (sPlayerbotAIConfig.DisableWhispers || !receiver)
         return false;
-    }
 
-    if (bot->GetTeamId() == TeamId::TEAM_ALLIANCE)
-    {
-        bot->Whisper(msg, LANG_COMMON, receiver);
-    }
-    else
-    {
-        bot->Whisper(msg, LANG_ORCISH, receiver);
-    }
-
+    bot->Whisper(message, LANG_UNIVERSAL, receiver);
     return true;
 }
 
@@ -3163,7 +3310,11 @@ bool PlayerbotAI::TellMasterNoFacing(std::string const text, PlayerbotSecurityLe
         return true;
     }
 
-    if (!IsTellAllowed(securityLevel))
+    ChatMsg type = CHAT_MSG_WHISPER;
+    if (currentChat.second - time(nullptr) >= 1)
+        type = currentChat.first;
+
+    if ((type == CHAT_MSG_WHISPER && sPlayerbotAIConfig.DisableWhispers) || !IsTellAllowed(securityLevel))
         return false;
 
     time_t lastSaid = whispers[text];
@@ -3171,10 +3322,6 @@ bool PlayerbotAI::TellMasterNoFacing(std::string const text, PlayerbotSecurityLe
     if (!lastSaid || (time(nullptr) - lastSaid) >= sPlayerbotAIConfig.RepeatDelay / 1000)
     {
         whispers[text] = time(nullptr);
-
-        ChatMsg type = CHAT_MSG_WHISPER;
-        if (currentChat.second - time(nullptr) >= 1)
-            type = currentChat.first;
 
         WorldPacket data;
         ChatHandler::BuildChatPacket(data, type == CHAT_MSG_ADDON ? CHAT_MSG_PARTY : type,
@@ -3461,7 +3608,10 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, bool checkHasSpell,
 
     if (Pet* pet = bot->GetPet())
         if (pet->HasSpell(spellid))
-            return true;
+        {
+            SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellid);
+            return spellInfo && CanAffectExplicitPvpTarget(pet, *spellInfo, target);
+        }
 
     if (checkHasSpell && !bot->HasSpell(spellid))
     {
@@ -3522,18 +3672,21 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, bool checkHasSpell,
 
     if (!itemTarget)
     {
-        // Exception for Deep Freeze (44572) - allow cast for damage on immune targets (e.g., bosses)
-        if (target->IsImmunedToSpell(spellInfo))
-        {
-            if (spellid != 44572)  // Deep Freeze
-            {
-                if (!sPlayerbotAIConfig.LogInGroupOnly || (bot->GetGroup() && HasGameClientMaster()))
-                    LOG_DEBUG("playerbots", "target is immuned to spell - target name: {}, spellid: {}, bot name: {}",
-                        target->GetName(), spellid, bot->GetName());
+        if (!CanAffectExplicitPvpTarget(bot, *spellInfo, target))
+            return false;
 
+        if (SpellEffectInfo const* areaFear = GetPvpAreaFearEffect(*this, *spellInfo, target))
+        {
+            if (!HasAreaFearTarget(bot, *spellInfo, *areaFear, target))
                 return false;
-            }
-            // Otherwise, allow Deep Freeze even if immune
+        }
+        else if (spellid != SPELL_MAGE_DEEP_FREEZE && target->IsImmunedToSpell(spellInfo))
+        {
+            if (!sPlayerbotAIConfig.LogInGroupOnly || (bot->GetGroup() && HasGameClientMaster()))
+                LOG_DEBUG("playerbots", "target is immuned to spell - target name: {}, spellid: {}, bot name: {}",
+                          target->GetName(), spellid, bot->GetName());
+
+            return false;
         }
 
         if (bot != target && ServerFacade::instance().GetDistance2d(bot, target) > sPlayerbotAIConfig.SightDistance)
@@ -3546,7 +3699,7 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, bool checkHasSpell,
         }
     }
 
-    Unit* oldSel = bot->GetSelectedUnit();
+    SpellSelectionGuard selectionGuard(bot);
     // TRIGGERED_IGNORE_POWER_AND_REAGENT_COST flag for not calling CheckPower in check
     // which avoids buff charge to be ineffectively reduced (e.g. dk freezing fog for howling blast)
     /// @TODO: Fix all calls to ApplySpellMod
@@ -3567,9 +3720,6 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, bool checkHasSpell,
     //         LOG_DEBUG("playerbots", "CanCastSpell - target name: {}, spellid: {}, bot name: {}, result: {}",
     //             target->GetName(), spellid, bot->GetName(), result);
     // }
-
-    if (oldSel)
-        bot->SetSelection(oldSel->GetGUID());
 
     switch (result)
     {
@@ -3768,6 +3918,16 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget)
         }
     }
 
+    if (!itemTarget)
+    {
+        if (!CanAffectExplicitPvpTarget(bot, *spellInfo, target))
+            return false;
+
+        if (SpellEffectInfo const* areaFear = GetPvpAreaFearEffect(*this, *spellInfo, target))
+            if (!HasAreaFearTarget(bot, *spellInfo, *areaFear, target))
+                return false;
+    }
+
     // aiObjectContext->GetValue<LastMovement&>("last movement")->Get().Set(nullptr);
     // aiObjectContext->GetValue<time_t>("stay time")->Set(0);
 
@@ -3787,7 +3947,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget)
         failWithDelay = true;
     }
 
-    ObjectGuid oldSel = bot->GetSelectedUnit() ? bot->GetSelectedUnit()->GetGUID() : ObjectGuid();
+    SpellSelectionGuard selectionGuard(bot);
     bot->SetSelection(target->GetGUID());
     WorldObject* faceTo = target;
     if (!bot->HasInArc(CAST_ANGLE_IN_FRONT, faceTo) && (spellInfo->FacingCasterFlags & SPELL_FACING_FLAG_INFRONT))
@@ -3998,9 +4158,6 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget)
 
     aiObjectContext->GetValue<PositionMap&>("position")->Get()["random"].Reset();
 
-    if (oldSel)
-        bot->SetSelection(oldSel);
-
     if (HasStrategy("debug spell", BOT_STATE_NON_COMBAT))
     {
         std::ostringstream out;
@@ -4061,7 +4218,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
         failWithDelay = true;
     }
 
-    ObjectGuid oldSel = bot->GetSelectedUnit() ? bot->GetSelectedUnit()->GetGUID() : ObjectGuid();
+    SpellSelectionGuard selectionGuard(bot);
 
     if (!bot->isMoving())
         bot->SetFacingTo(bot->GetAngle(x, y));
@@ -4123,9 +4280,6 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
     // WaitForSpellCast(spell);
     aiObjectContext->GetValue<LastSpellCast&>("last spell cast")->Get().Set(spellId, bot->GetGUID(), time(nullptr));
     aiObjectContext->GetValue<PositionMap&>("position")->Get()["random"].Reset();
-
-    if (oldSel)
-        bot->SetSelection(oldSel);
 
     if (HasStrategy("debug spell", BOT_STATE_NON_COMBAT))
     {
@@ -6194,6 +6348,13 @@ int32 PlayerbotAI::GetNearGroupMemberCount(float dis)
 
 bool PlayerbotAI::CanMove()
 {
+    if (bot->GetTransport() && bot->IsAlive() && !bot->GetVehicle() && !IsSelfBot(bot))
+        if (Battleground* battleground = bot->GetBattleground())
+            if (BattlegroundSA* strand = battleground->ToBattlegroundSA())
+                if (strand->IsRoundPreparation() &&
+                    strand->GetAttackerTeam() == bot->GetTeamId())
+                    return false;
+
     // Most common checks: confused, stunned, fleeing, jumping, charging. All these
     // states are set when handling certain aura effects. We don't check against
     // UNIT_STATE_ROOT here, because this state is used by vehicles.

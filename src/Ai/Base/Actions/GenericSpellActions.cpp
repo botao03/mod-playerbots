@@ -15,6 +15,7 @@
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "Playerbots.h"
+#include "RacialSpells.h"
 #include "ServerFacade.h"
 #include "WorldPacket.h"
 #include <ctime>
@@ -184,6 +185,16 @@ bool CastSpellAction::isUseful()
 {
     if (botAI->IsInVehicle() && !botAI->IsInVehicle(false, false, true))
         return false;
+
+    if (spell == "stoneform" && sSpellMgr->GetSpellInfo(Acore::Racials::StoneformImmunity))
+    {
+        if (!bot->IsInCombat())
+            return bot->HasAura(Acore::Racials::Stoneform);
+
+        return !bot->HasAura(Acore::Racials::Stoneform) && !bot->HasSpellCooldown(Acore::Racials::Stoneform) &&
+               (botAI->HasAuraToDispel(bot, DISPEL_POISON) || botAI->HasAuraToDispel(bot, DISPEL_DISEASE) ||
+                bot->HasAuraWithMechanic(1ULL << MECHANIC_BLEED));
+    }
 
     if (spell == "mount" && !bot->IsMounted() && !bot->IsInCombat())
         return true;
@@ -497,13 +508,15 @@ bool CastVehicleSpellAction::Execute(Event /*event*/)
 bool CastEveryManForHimselfAction::isPossible()
 {
     uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
-    return spellId && !HasSpellOrCategoryCooldown(bot, spellId);
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    return info && !info->IsPassive() && !HasSpellOrCategoryCooldown(bot, spellId);
 }
 
 bool CastWillOfTheForsakenAction::isPossible()
 {
     uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
-    return spellId && !HasSpellOrCategoryCooldown(bot, spellId);
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    return info && !info->IsPassive() && !HasSpellOrCategoryCooldown(bot, spellId);
 }
 
 bool UseTrinketAction::Execute(Event /*event*/)

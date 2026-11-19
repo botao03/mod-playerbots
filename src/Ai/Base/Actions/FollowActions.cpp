@@ -5,6 +5,7 @@
  */
 
 #include "FollowActions.h"
+#include "GroupTeleportFollow.h"
 #include "Event.h"
 #include "Formations.h"
 #include "LastMovementValue.h"
@@ -98,6 +99,9 @@ namespace
 
 bool FollowAction::Execute(Event /*event*/)
 {
+    if (IsAcceptedDuel(bot) || IsWaitingForFlyingMaster(bot))
+        return false;
+
     Formation* formation = AI_VALUE(Formation*, "formation");
     std::string const target = formation->GetTargetName();
 
@@ -236,6 +240,9 @@ bool FollowAction::Execute(Event /*event*/)
 
 bool FollowAction::isUseful()
 {
+    if (IsAcceptedDuel(bot) || IsWaitingForFlyingMaster(bot))
+        return false;
+
     // move from group takes priority over follow as it's added and removed automatically
     // (without removing/adding follow)
     if (botAI->HasStrategy("move from group", BOT_STATE_COMBAT) ||
@@ -271,6 +278,21 @@ bool FollowAction::isUseful()
             return false;
     }
 
+    bool const masterFishing = botAI->HasStrategy("master fishing", BOT_STATE_NON_COMBAT);
+    float const followRadius = formation->GetProximityFollowRadius();
+    if (followRadius > 0.0f)
+    {
+        if (!bot->IsInMap(fTarget))
+            return false;
+
+        Transport const* transport = fTarget->GetTransport();
+        if (transport && transport != bot->GetTransport() && !transport->IsStaticTransport())
+            return true;
+
+        float const radius = masterFishing ? sPlayerbotAIConfig.FishingDistanceFromMaster : followRadius;
+        return bot->GetExactDistSq(fTarget) > radius * radius;
+    }
+
     float distance = 0.f;
     if (!target.empty())
     {
@@ -284,7 +306,7 @@ bool FollowAction::isUseful()
 
         distance = bot->GetDistance(loc.GetPositionX(), loc.GetPositionY(), loc.GetPositionZ());
     }
-    if (botAI->HasStrategy("master fishing", BOT_STATE_NON_COMBAT))
+    if (masterFishing)
         return ServerFacade::instance().IsDistanceGreaterThan(distance, sPlayerbotAIConfig.FishingDistanceFromMaster);
 
     return ServerFacade::instance().IsDistanceGreaterThan(distance, formation->GetMaxDistance());

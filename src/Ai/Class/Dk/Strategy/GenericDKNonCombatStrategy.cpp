@@ -5,6 +5,7 @@
  */
 
 #include "GenericDKNonCombatStrategy.h"
+#include "Playerbots.h"
 
 GenericDKNonCombatStrategy::GenericDKNonCombatStrategy(PlayerbotAI* botAI) : NonCombatStrategy(botAI)
 {
@@ -14,6 +15,10 @@ GenericDKNonCombatStrategy::GenericDKNonCombatStrategy(PlayerbotAI* botAI) : Non
 void GenericDKNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     NonCombatStrategy::InitTriggers(triggers);
+
+    constexpr uint32 SPELL_MASTER_OF_GHOULS = 52143;
+    if (botAI->GetBot()->HasAura(SPELL_MASTER_OF_GHOULS))
+        triggers.push_back(new TriggerNode("no pet", { NextAction("raise dead", 22.0f) }));
 
     triggers.push_back(new TriggerNode("often", { NextAction("apply stone", 1.0f) }));
     triggers.push_back(

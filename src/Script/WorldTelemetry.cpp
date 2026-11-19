@@ -114,12 +114,11 @@ void SampleWorldTelemetry(Player* player, uint32 diff)
     }
     timer->Remaining = SampleInterval;
 
-    if (BotPopulationState const* population = GetBotPopulation(player))
-        if (!population->Ready || player->GetPhaseMask() != PHASEMASK_NORMAL)
-        {
-            RemoveWorldTelemetry(player);
-            return;
-        }
+    if (IsPopulationBotStaged(player))
+    {
+        RemoveWorldTelemetry(player);
+        return;
+    }
 
     PlayerbotAI* ai = GET_PLAYERBOT_AI(player);
     Group* group = player->GetGroup();

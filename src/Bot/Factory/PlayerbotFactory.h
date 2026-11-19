@@ -80,7 +80,9 @@ public:
                                              Trainer::Spell const* trainerSpell);
     void InitClassSpells();
     void InitSpecialSpells();
-    void InitEquipment(bool incremental, bool second_chance = false);
+    void InitEquipment(bool incremental, bool second_chance = false, bool onlyMissing = false);
+    static bool HasBaselineEquipment(Player const* bot);
+    static bool RepairMissingEquipment(Player* bot);
     void InitPet();
     void InitAmmo();
     static uint32 CalcMixedGearScore(uint32 gs, uint32 quality);

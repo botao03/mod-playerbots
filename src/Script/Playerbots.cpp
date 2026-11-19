@@ -6,10 +6,12 @@
 
 #include "ActivityReplacement.h"
 #include "BotPopulation.h"
+#include "BotRiding.h"
 #include "Playerbots.h"
 #include "EmptyInstanceCleanup.h"
 #include "BattleGroundTactics.h"
 #include "BattlefieldScript.h"
+#include "BattlegroundMgr.h"
 #include "Channel.h"
 #include "CheckMountStateAction.h"
 #include "Config.h"
@@ -22,7 +24,9 @@
 #include "GatherNodeMgr.h"
 #include "GlobalScript.h"
 #include "GroupMgr.h"
+#include "GroupTeleportFollow.h"
 #include "GuildTaskMgr.h"
+#include "ObjectAccessor.h"
 #include "PlayerScript.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotCommandScript.h"
@@ -37,6 +41,17 @@
 #include "WorldSession.h"
 #include "WorldTelemetry.h"
 #include "cmath"
+
+namespace
+{
+bool ShouldRejectBotRequest(Player* requester, Player* target)
+{
+    return requester && requester->GetSession() && target &&
+           requester->GetSession()->GetSecurity() == SEC_PLAYER &&
+           (IsRealPlayer(requester) || IsSelfBot(requester)) &&
+           GET_PLAYERBOT_AI(target) && !IsSelfBot(target);
+}
+}
 
 class PlayerbotsDatabaseScript : public DatabaseScript
 {
@@ -145,9 +160,61 @@ public:
         PLAYERHOOK_CAN_PLAYER_USE_GROUP_CHAT,
         PLAYERHOOK_CAN_PLAYER_USE_GUILD_CHAT,
         PLAYERHOOK_CAN_PLAYER_USE_CHANNEL_CHAT,
+        PLAYERHOOK_CAN_GROUP_INVITE,
+        PLAYERHOOK_CAN_INIT_TRADE,
+        PLAYERHOOK_CAN_JOIN_IN_BATTLEGROUND_QUEUE,
+        PLAYERHOOK_ON_DUEL_REQUEST,
         PLAYERHOOK_ON_GIVE_EXP,
         PLAYERHOOK_ON_BEFORE_TELEPORT
     }) {}
+
+    bool OnPlayerCanJoinInBattlegroundQueue(Player* player, ObjectGuid /*battlemasterGuid*/,
+        BattlegroundTypeId bgTypeId, uint8 joinAsGroup, GroupJoinBattlegroundResult& result) override
+    {
+        Battleground const* battleground = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId);
+        if (!battleground)
+            return true;
+
+        PvPDifficultyEntry const* bracket = GetBattlegroundBracketByLevel(battleground->GetMapId(), player->GetLevel());
+        if (!bracket || bracket->minLevel >= DEFAULT_MAX_LEVEL)
+            return true;
+
+        bool hasBot = player->GetSession()->IsHeadless();
+        if (Group* group = joinAsGroup ? player->GetGroup() : nullptr)
+            group->DoForAllMembers([&hasBot](Player* member) { hasBot |= member->GetSession()->IsHeadless(); });
+
+        if (!hasBot)
+            return true;
+
+        result = ERR_BATTLEGROUND_JOIN_FAILED;
+        return false;
+    }
+
+    bool OnPlayerCanGroupInvite(Player* player, std::string& membername) override
+    {
+        if (!ShouldRejectBotRequest(player, ObjectAccessor::FindPlayerByName(membername, false)))
+            return true;
+
+        player->GetSession()->SendPartyResult(PARTY_OP_INVITE, membername, ERR_INVITE_RESTRICTED);
+        return false;
+    }
+
+    bool OnPlayerCanInitTrade(Player* player, Player* target) override
+    {
+        if (!ShouldRejectBotRequest(player, target))
+            return true;
+
+        TradeStatusInfo info;
+        info.Status = TRADE_STATUS_TRADE_CANCELED;
+        player->GetSession()->SendTradeStatus(info);
+        return false;
+    }
+
+    void OnPlayerDuelRequest(Player* target, Player* challenger) override
+    {
+        if (ShouldRejectBotRequest(challenger, target))
+            target->DuelComplete(DUEL_INTERRUPTED);
+    }
 
     void OnPlayerLogin(Player* player) override
     {
@@ -179,6 +246,8 @@ public:
 
     void OnPlayerBeforeLogout(Player* player) override
     {
+        ClearGroupMountFollow(player);
+        RestoreGroupFollowerPhases(player);
         RemoveWorldTelemetry(player);
 
         if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))
@@ -207,9 +276,10 @@ public:
             alreadySignedByAccount = false;
     }
 
-    bool OnPlayerBeforeTeleport(Player* /*player*/, uint32 /*mapid*/, float /*x*/, float /*y*/, float /*z*/,
-                                float /*orientation*/, uint32 /*options*/, Unit* /*target*/) override
+    bool OnPlayerBeforeTeleport(Player* player, uint32 mapid, float x, float y, float z, float /*orientation*/,
+                                uint32 /*options*/, Unit* /*target*/) override
     {
+        QueueGroupTeleportFollow(player, mapid, x, y, z);
         /* for now commmented out until proven its actually required
         * havent seen any proof CleanVisibilityReferences() is needed
 
@@ -259,7 +329,10 @@ public:
 
         if (botAI != nullptr)
         {
+            UpdateBotRiding(player);
             botAI->UpdateAI(diff);
+            if (!IsSelfBot(player) && player->GetTarget() == player->GetGUID())
+                player->SetSelection(ObjectGuid::Empty);
         }
 
         if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))
@@ -475,8 +548,13 @@ public:
     void OnSessionUpdate(WorldSession* session, uint32 /*diff*/) override
     {
         if (Player* player = session->GetPlayer())
+        {
             if (PlayerbotMgr* playerbotMgr = GET_PLAYERBOT_MGR(player))
                 playerbotMgr->UpdateSessions();
+            UpdateGroupFollowerPhases(player);
+            UpdateGroupMountFollow(player);
+            UpdateGroupOutOfSightFollow(player);
+        }
     }
 };
 
@@ -598,6 +676,7 @@ public:
         PlayerbotHolder::UpdatePendingLogins();  // Headless sessions whose login holder is in flight
         sRandomPlayerbotMgr.UpdateSessions();  // Per-bot packet queues, world thread only
         PlayerbotWorldThreadProcessor::instance().Update(diff);
+        UpdateGroupTeleportFollow();
         UpdateActivityReplacements(diff);
         sRandomPlayerbotMgr.UpdateAI(diff);  // World thread only
         UpdateEmptyInstanceCleanup(diff);

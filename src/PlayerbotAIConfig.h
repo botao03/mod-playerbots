@@ -192,6 +192,7 @@ public:
     bool EnableBroadcasts;
     bool EnableGreet;
     bool RandomBotSayWithoutMaster;
+    bool DisableWhispers = false;
     bool AnnounceConsumableUse;
 
     uint32 BroadcastChanceMaxValue;
@@ -356,6 +357,10 @@ public:
     uint32 CommandServerPort;
     bool PerfMonEnabled;
     bool SummonWhenGroup;
+    bool FollowLeaderTeleport = false;
+    bool FollowGroupOutOfSight = false;
+    bool AutoTrainRiding = false;
+    bool WaitForFlyingMaster = false;
     ShowHideCosmetic RandomBotShowHelmet;
     ShowHideCosmetic RandomBotShowCloak;
     bool RandomBotFixedLevel;

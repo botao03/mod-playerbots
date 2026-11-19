@@ -53,7 +53,7 @@ bool WtsAction::Execute(Event event)
         tell << "I'll buy " << chat->FormatItem(proto) << " for " << chat->formatMoney(buyPrice);
 
         // ignore random bot chat filter
-        bot->Whisper(tell.str(), LANG_UNIVERSAL, owner);
+        botAI->Whisper(tell.str(), owner);
     }
 
     return true;

@@ -229,9 +229,11 @@ bool BGJoinAction::canJoinBg(BattlegroundQueueTypeId queueTypeId, BattlegroundBr
 
     // check if the bracket exists for the bot's level for the specific Battleground/Arena type
     Battleground* bg = sBattlegroundMgr->GetBattlegroundTemplate(bgTypeId);
+    if (!bg || (!bg->isArena() && bot->GetLevel() < DEFAULT_MAX_LEVEL))
+        return false;
     uint32 mapId = bg->GetMapId();
     PvPDifficultyEntry const* pvpDiff = GetBattlegroundBracketByLevel(mapId, bot->GetLevel());
-    if (!pvpDiff)
+    if (!pvpDiff || (!bg->isArena() && pvpDiff->minLevel < DEFAULT_MAX_LEVEL))
         return false;
 
     BattlegroundBracketId bracket_temp = pvpDiff->GetBracketId();
@@ -434,7 +436,7 @@ bool BGJoinAction::JoinQueue(uint32 type)
 
     uint32 mapId = bg->GetMapId();
     PvPDifficultyEntry const* pvpDiff = GetBattlegroundBracketByLevel(mapId, bot->GetLevel());
-    if (!pvpDiff)
+    if (!pvpDiff || (!bg->isArena() && pvpDiff->minLevel < DEFAULT_MAX_LEVEL))
         return false;
 
     bracketId = pvpDiff->GetBracketId();

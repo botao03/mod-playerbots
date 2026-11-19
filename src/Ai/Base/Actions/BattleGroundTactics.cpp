@@ -6,6 +6,7 @@
 
 #include "BattleGroundTactics.h"
 #include "BattlegroundTacticsPolicy.h"
+#include "StrandOfTheAncientsActions.h"
 #include "ArenaTeam.h"
 #include "ArenaTeamMgr.h"
 #include "BattleGroundJoinAction.h"
@@ -1642,7 +1643,16 @@ bool BGTactics::Execute(Event /*event*/)
         bgType = bot->GetBattleground()->GetBgTypeID(true);
 
     if (bgType == BATTLEGROUND_SA && sPlayerbotAIConfig.CoordinatedBattlegrounds)
-        return strandTactics();
+    {
+        if (getName() == "move to objective")
+            return strandTactics();
+        if (getName() == "reset objective force")
+        {
+            AI_VALUE(PositionMap&, "position")["bg siege"].Reset();
+            AI_VALUE(PositionMap&, "position")["bg objective"].Reset();
+        }
+        return false;
+    }
 
     switch (bgType)
     {
@@ -4303,86 +4313,120 @@ bool BGTactics::selectCoordinatedObjective()
     return setObjective(best->Location, best->Owned || best->Assaulted);
 }
 
+bool BGTactics::StrandDefend(BattlegroundSA const& strand, bool right)
+{
+    if (strand.GetGateState(BG_SA_YELLOW_GATE) == BG_SA_GATE_DESTROYED || bot->GetVehicle() ||
+        bot->IsMovementPreventedByCasting() || AI_VALUE(ObjectGuid, "bg focus target"))
+        return false;
+
+    // Keep patrols on both flanks as the fight moves inland.
+    static Position const beach[2][2] = {
+        {{1485.0f, 90.0f, 8.79f}, {1525.0f, 90.0f, 7.77f}},
+        {{1485.0f, -180.0f, 12.04f}, {1525.0f, -180.0f, 5.82f}},
+    };
+    static Position const outerFortress[2][2] = {
+        {{1309.19f, 9.42f, 31.19f}, {1240.0f, 77.0f, 47.39f}},
+        {{1338.86f, -153.33f, 31.3f}, {1242.0f, -220.0f, 55.3f}},
+    };
+    static Position const innerFortress[2][2] = {
+        {{1145.0f, -37.0f, 69.18f}, {1080.0f, -80.0f, 76.41f}},
+        {{1145.0f, -158.0f, 69.22f}, {1080.0f, -128.0f, 79.45f}},
+    };
+    constexpr float PATROL_ARRIVAL_DISTANCE = 8.0f;
+    Position const* route = beach[right];
+    bool returningFromShore = bot->GetPositionX() > beach[right][1].GetPositionX() + PATROL_ARRIVAL_DISTANCE;
+    if (!returningFromShore)
+    {
+        switch (GetStrandGate(&strand, right))
+        {
+            case BG_SA_RED_GATE:
+            case BG_SA_PURPLE_GATE:
+                route = outerFortress[right];
+                break;
+            case BG_SA_YELLOW_GATE:
+                route = innerFortress[right];
+                break;
+            default:
+                break;
+        }
+    }
+
+    PositionInfo& objective = AI_VALUE(PositionMap&, "position")["bg objective"];
+    uint8 checkpoint = 0;
+    if (objective.isSet() && objective.x == route[1].GetPositionX() && objective.y == route[1].GetPositionY())
+        checkpoint = 1;
+    else if (!objective.isSet() || objective.x != route[0].GetPositionX() || objective.y != route[0].GetPositionY())
+        checkpoint = bot->GetExactDist(route[1]) < bot->GetExactDist(route[0]);
+
+    if (bot->GetExactDist(route[checkpoint]) <= PATROL_ARRIVAL_DISTANCE)
+        checkpoint = 1 - checkpoint;
+
+    Position const& destination = route[checkpoint];
+    float x = destination.GetPositionX();
+    float y = destination.GetPositionY();
+    float z = destination.GetPositionZ();
+    float movingX, movingY, movingZ;
+    if (bot->GetMotionMaster()->GetDestination(movingX, movingY, movingZ) &&
+        destination.GetExactDist2d(movingX, movingY) <= CONTACT_DISTANCE)
+        return true;
+
+    if (!MoveTo(bot->GetMapId(), x, y, z, false, false, true))
+        return false;
+
+    objective.Set(x, y, z, bot->GetMapId());
+    return true;
+}
+
 bool BGTactics::strandTactics()
 {
-    auto* bg = dynamic_cast<BattlegroundSA*>(bot->GetBattleground());
-    if (!bg)
-        return false;
+    auto* bg = bot->GetBattleground()->ToBattlegroundSA();
     PositionMap& positions = AI_VALUE(PositionMap&, "position");
+    positions["bg siege"].Reset();
     if (!bg->IsRoundInProgress() || !bot->IsAlive())
     {
-        positions["bg siege"].Reset();
         positions["bg objective"].Reset();
         return false;
     }
+
     bool attacker = bg->GetAttackerTeam() == bot->GetTeamId();
-    uint32 side = GetBattlegroundTeamRole(bot).Index / TACTICAL_SQUAD_SIZE % 2;
-    uint32 gate = side ? BG_SA_BLUE_GATE : BG_SA_GREEN_GATE;
-    bool beachOpen = bg->GetGateState(BG_SA_GREEN_GATE) == BG_SA_GATE_DESTROYED ||
-        bg->GetGateState(BG_SA_BLUE_GATE) == BG_SA_GATE_DESTROYED;
-    bool courtyardOpen = bg->GetGateState(BG_SA_RED_GATE) == BG_SA_GATE_DESTROYED ||
-        bg->GetGateState(BG_SA_PURPLE_GATE) == BG_SA_GATE_DESTROYED;
-    if (beachOpen)
-        gate = side ? BG_SA_RED_GATE : BG_SA_PURPLE_GATE;
-    if (courtyardOpen)
-        gate = BG_SA_YELLOW_GATE;
-    if (bg->GetGateState(BG_SA_YELLOW_GATE) == BG_SA_GATE_DESTROYED)
-        gate = BG_SA_ANCIENT_GATE;
-    if (bg->GetGateState(BG_SA_ANCIENT_GATE) == BG_SA_GATE_DESTROYED)
-    {
-        positions["bg siege"].Reset();
-        if (attacker)
-            if (GameObject* relic = bg->GetBGObject(BG_SA_TITAN_RELIC))
-            {
-                if (bot->GetVehicle())
-                    return botAI->DoSpecificAction("leave vehicle");
-                if (bot->IsWithinDistInMap(relic, INTERACTION_DISTANCE))
-                {
-                    if (bg->CanCaptureObject(BG_SA_TITAN_RELIC))
-                        relic->Use(bot);
-                    return true;
-                }
-                return MoveTo(relic);
-            }
-    }
-    if (attacker && !bot->GetVehicle())
-        for (auto const& [index, graveyard] :
-            {std::pair{BG_SA_LEFT_FLAG, BG_SA_LEFT_CAPTURABLE_GY},
-                std::pair{BG_SA_RIGHT_FLAG, BG_SA_RIGHT_CAPTURABLE_GY},
-                std::pair{BG_SA_CENTRAL_FLAG, BG_SA_CENTRAL_CAPTURABLE_GY}})
-            if (bg->GetGraveyardOwner(graveyard) != bot->GetTeamId() && bg->CanCaptureObject(index))
-                if (GameObject* flag = bg->GetBGObject(index))
-                    if (flag->isSpawned() && !flag->HasFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE) &&
-                        bot->IsWithinDistInMap(flag, 35.0f))
-                    {
-                        if (!bot->IsWithinDistInMap(flag, INTERACTION_DISTANCE))
-                            return MoveTo(flag);
-                        flag->Use(bot);
-                        return true;
-                    }
+    bool right = bot->GetGUID().GetRawValue() % 2;
+    if (!attacker)
+        return StrandDefend(*bg, right);
+
+    uint32 gate = GetStrandGate(bg, right);
+    if (gate == BG_SA_TITAN_RELIC)
+        return false;
+
     GameObject* objective = bg->GetBGObject(gate);
     if (!objective)
         return false;
+
     positions["bg objective"].Set(objective->GetPositionX(), objective->GetPositionY(), objective->GetPositionZ(),
         bot->GetMapId());
-    if (attacker && botAI->IsInVehicle(true))
+    if (botAI->IsInVehicle(true))
     {
         positions["bg siege"] = positions["bg objective"];
-        float range = 12.0f;
-        if (bot->IsWithinDistInMap(objective, range))
+        Position approach = GetStrandGateApproach(bot, objective, 10.0f);
+        Unit* vehicle = bot->GetVehicleBase();
+        if (!vehicle)
             return false;
-        return MoveNear(bot->GetMapId(), objective->GetPositionX(), objective->GetPositionY(),
-            objective->GetPositionZ(), range);
+        if (vehicle->GetExactDist2d(approach) <= 3.0f)
+        {
+            vehicle->StopMoving();
+            vehicle->SetFacingToObject(objective);
+            return false;
+        }
+        return MoveTo(bot->GetMapId(), approach.GetPositionX(), approach.GetPositionY(), approach.GetPositionZ());
     }
-    positions["bg siege"].Reset();
-    if (bot->IsInCombat())
+
+    if (bot->IsInCombat() || bot->IsNonMeleeSpellCast(false) || AI_VALUE(ObjectGuid, "bg focus target"))
         return false;
-    // Infantry screens the breach while demolishers damage the gate; defenders intercept those demolishers.
-    float screenX = objective->GetPositionX() + (attacker ? 18.0f : 8.0f);
-    float screenY = objective->GetPositionY() + (side ? 6.0f : -6.0f);
-    if (bot->GetDistance2d(screenX, screenY) <= 8.0f)
+
+    float lateral = (int32(bot->GetGUID().GetRawValue() % 5) - 2) * 4.0f;
+    Position screen = GetStrandGateApproach(bot, objective, 18.0f, lateral);
+    if (bot->GetExactDist2d(screen) <= 8.0f)
         return false;
-    return MoveTo(bot->GetMapId(), screenX, screenY, objective->GetPositionZ());
+    return MoveTo(bot->GetMapId(), screen.GetPositionX(), screen.GetPositionY(), screen.GetPositionZ());
 }
 
 bool BGTactics::useBuff()

@@ -7,19 +7,14 @@
 #ifndef PLAYERBOTS_SUBTLETYROGUESTRATEGY_H
 #define PLAYERBOTS_SUBTLETYROGUESTRATEGY_H
 
-// To be implemented. For now, Subtlety uses Assassination's strategy (poorly).
+#include "AssassinationRogueStrategy.h"
 
-/*#include "GenericRogueStrategy.h"
-
-class SubtletyRogueStrategy : public GenericRogueStrategy
+class SubtletyRogueStrategy : public AssassinationRogueStrategy
 {
 public:
-    SubtletyRogueStrategy(PlayerbotAI* botAI);
-
-public:
-    virtual void InitTriggers(std::vector<TriggerNode*>& triggers) override;
-    virtual std::string const getName() override { return "subtlety"; }
-    virtual std::vector<NextAction> getDefaultActions() override;
-};*/
+    SubtletyRogueStrategy(PlayerbotAI* botAI) : AssassinationRogueStrategy(botAI) {}
+    void InitTriggers(std::vector<TriggerNode*>& triggers) override;
+    std::string const getName() override { return "subtlety"; }
+};
 
 #endif

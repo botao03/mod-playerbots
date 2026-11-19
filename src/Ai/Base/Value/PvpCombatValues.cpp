@@ -11,6 +11,25 @@
 #include "SpellAuras.h"
 #include "SpellInfo.h"
 
+bool PvpRogueOpeningValue::Calculate()
+{
+    Unit* opponent = GetPvpOpponent(botAI);
+    if (!opponent || bot->getClass() != CLASS_ROGUE)
+        return false;
+    for (char const* name : {"cheap shot", "garrote", "ambush"})
+    {
+        uint32 id = AI_VALUE2(uint32, "spell id", name);
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(id);
+        if (!info || !bot->HasSpell(id) || bot->HasSpellCooldown(id) || !bot->HasItemFitToSpellRequirements(info) ||
+            opponent->IsImmunedToSpell(info))
+            continue;
+        DiminishingGroup group = GetDiminishingReturnsGroupForSpell(info, false);
+        if (group == DIMINISHING_NONE || opponent->GetDiminishing(group) < DIMINISHING_LEVEL_IMMUNE)
+            return true;
+    }
+    return false;
+}
+
 ObjectGuid PvpMagicCasterValue::Calculate()
 {
     Unit* opponent = GetPvpOpponent(botAI);

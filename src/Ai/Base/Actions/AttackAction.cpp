@@ -5,6 +5,7 @@
  */
 
 #include "AttackAction.h"
+
 #include "CreatureAI.h"
 #include "Event.h"
 #include "LastMovementValue.h"
@@ -12,6 +13,7 @@
 #include "PlayerbotAI.h"
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
+#include "PvpCombatTriggers.h"
 #include "ServerFacade.h"
 #include "Unit.h"
 #include "WaitForAttackStrategy.h"
@@ -140,8 +142,12 @@ bool AttackAction::Attack(Unit* target, bool /*with_pet*/ /*true*/)
     Unit* oldTarget = context->GetValue<Unit*>("current target")->Get();
     bool shouldMelee = bot->IsWithinMeleeRange(target) || PlayerbotAI::IsMelee(bot);
 
-    bool sameTarget = oldTarget == target && bot->GetVictim() == target;
     bool inCombat = botAI->GetState() == BOT_STATE_COMBAT;
+    bool preserveControl = sPlayerbotAIConfig.PvpCombatTactics && GetPvpRogueControl(bot, target);
+    if (preserveControl && inCombat && oldTarget == target)
+        return false;
+
+    bool sameTarget = oldTarget == target && bot->GetVictim() == target;
     bool sameAttackMode = bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING) == shouldMelee;
 
     if (sameTarget && inCombat && sameAttackMode)
@@ -191,7 +197,9 @@ bool AttackAction::Attack(Unit* target, bool /*with_pet*/ /*true*/)
 
     botAI->ChangeEngine(BOT_STATE_COMBAT);
 
-    if (!WaitForAttackStrategy::ShouldWait(botAI))
+    bool preserveStealth =
+        sPlayerbotAIConfig.PvpCombatTactics && target->IsControlledByPlayer() && bot->HasStealthAura();
+    if (!preserveStealth && !preserveControl && !WaitForAttackStrategy::ShouldWait(botAI))
         bot->Attack(target, shouldMelee);
     /* prevent pet dead immediately in group */
     // if (bot->GetMap()->IsDungeon() && bot->GetGroup() && !target->IsInCombat())
@@ -217,9 +225,19 @@ bool AttackAction::Attack(Unit* target, bool /*with_pet*/ /*true*/)
     return true;
 }
 
-bool AttackDuelOpponentAction::isUseful() { return AI_VALUE(Unit*, "duel target"); }
+bool AttackDuelOpponentAction::isUseful()
+{
+    return sPlayerbotAIConfig.PvpCombatTactics ? IsPvpSituationActive(botAI, PvpSituation::DuelStart)
+                                               : AI_VALUE(Unit*, "duel target") != nullptr;
+}
 
-bool AttackDuelOpponentAction::Execute(Event /*event*/) { return Attack(AI_VALUE(Unit*, "duel target")); }
+bool AttackDuelOpponentAction::Execute(Event /*event*/)
+{
+    if (sPlayerbotAIConfig.PvpCombatTactics && !isUseful())
+        return false;
+    Unit* target = sPlayerbotAIConfig.PvpCombatTactics ? GetPvpDuelOpponent(botAI) : AI_VALUE(Unit*, "duel target");
+    return Attack(target);
+}
 
 bool MeleeAction::isUseful()
 {

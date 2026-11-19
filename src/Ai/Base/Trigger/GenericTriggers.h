@@ -900,6 +900,14 @@ public:
     bool IsActive() override;
 };
 
+class MasterMountStateTrigger : public Trigger
+{
+public:
+    MasterMountStateTrigger(PlayerbotAI* botAI) : Trigger(botAI, "master mount state", IN_MILLISECONDS) {}
+
+    bool IsActive() override;
+};
+
 class CorpseNearTrigger : public Trigger
 {
 public:

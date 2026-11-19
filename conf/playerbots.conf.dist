@@ -192,6 +192,39 @@ Playerbots.InviteChat = 0
 # Bots will be automatically summoned to the player when they accept a group invitation
 Playerbots.SummonWhenGroup = 1
 
+# Follow a human group leader after a completed cross-map teleport or a same-map
+# teleport of at least 60 yards. Only headless group bots are moved; human players
+# and battleground/arena participants are excluded. Bots already within 10 yards
+# remain in place. Busy, dead or flying bots can catch up for up to 60 seconds.
+# Destination entry requirements remain enforced. Successful arrivals resume follow.
+# While grouped, headless companions also share the human leader's game phase.
+# Phase checks run once per second on the world thread; pets update with their owner.
+# Leaving the group or losing the human leader restores the previous phase.
+# Default: 0 (disabled)
+Playerbots.FollowLeaderTeleport = 0
+
+# Recall outdoor headless group companions once outside every online human member's
+# sight range. The first online human in the group roster is the destination.
+# Checks run every 5 seconds on the world thread. Arrivals share that player's phase,
+# use their own eligible ground/flying mount, and board available passenger seats
+# or moving transports. Bots unable to fly arrive on safe ground below the player.
+# Dungeons, raids, battlegrounds, arenas, dead players and staged bots are excluded.
+Playerbots.FollowGroupOutOfSight = 0
+
+# Train headless bots in the highest riding rank allowed at their own level and
+# supply racial ground mounts and faction flying mounts. Repairs existing bots
+# on their first update and trains new ranks after level changes. Rechecks riding,
+# Cold Weather Flying and level-appropriate mounts once per second to repair lost
+# abilities even at the same level. Includes Cold Weather Flying at level 77.
+# Human characters and SelfBots are not changed.
+Playerbots.AutoTrainRiding = 0
+
+# Companions unable to fly wait in place while their human master uses a flying
+# mount or flight form. After the master dismounts and lands, summon the waiting
+# companions and resume following. Group changes/logout cancel the wait; combat,
+# taxis, vehicles, battlegrounds and destination entry restrictions are respected.
+Playerbots.WaitForFlyingMaster = 0
+
 # Player can be activated as a bot (selfbot)
 # Selfbot permission level (0 = disabled, 1 = GM only (default), 2 = all players, 3 = activate on login)
 Playerbots.SelfBotLevel = 1
@@ -475,6 +508,9 @@ Playerbots.ApplyInstanceStrategies = 1
 
 # Add class and racial responses to player opponents in duels, world PvP, battlegrounds and arenas.
 # Checks actual casts, control effects and health before using learned skills and equipped PvP trinkets.
+# Also prepares duels during the countdown, starts attacks without waiting to be hit, preserves rogue openers,
+# and holds offensive cooldowns for vulnerable targets. Control respects existing CC, immunity and diminishing returns.
+# Rogues try one Sap per duel before their damage opener, using its control window for positioning and Premeditation.
 # Default: 0 (disabled)
 Playerbots.PvpCombatTactics = 0
 
@@ -2641,6 +2677,8 @@ Playerbots.ThunderfuryRepliesChance = 40
 Playerbots.GuildRepliesRate = 100
 # Bots without a master will say their lines
 Playerbots.RandomBotSayWithoutMaster = 0
+# Disable Playerbots whispers such as action notifications and command replies.
+Playerbots.DisableWhispers = 0
 # Bots whisper their master when they eat/drink/feast ("Eating [item] (85%)"). Set to 0 to
 # suppress those consumable-use messages (bots still sit and eat, just silently).
 # Default: 1 (enabled)
@@ -2788,6 +2826,9 @@ Playerbots.SummonAtInnkeepersEnabled = 1
 # Independent world and activity populations. Replaces the legacy random login/count scheduler.
 # Restart the server after enabling or disabling this scheduler.
 # WorldCount is shared across occupied outdoor zones, never multiplied by player/zone count.
+# Each zone's quota is split by its real players' factions, proportional to their player counts.
+# Only factions with players receive world bots; nearby spawns also match their owner's faction.
+# Incomplete equipment is repaired before spawning and for idle recruited companions, preserving existing gear.
 # Players in instances retain demand in their last outdoor region until returning or logging out.
 # Capitals and outdoor zones have separate spawn/patrol boundaries and share the same WorldCount quota.
 # Dalaran population bots are always level 80. Shattrath: 80% level 80, 20% level 70-79.

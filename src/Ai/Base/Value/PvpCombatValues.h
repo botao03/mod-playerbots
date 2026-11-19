@@ -42,4 +42,14 @@ public:
     ObjectGuid Calculate() override;
 };
 
+class PvpRogueOpeningValue : public CalculatedValue<bool>
+{
+public:
+    PvpRogueOpeningValue(PlayerbotAI* botAI)
+        : CalculatedValue<bool>(botAI, "pvp rogue opener", PVP_TACTICAL_CACHE_INTERVAL)
+    {
+    }
+    bool Calculate() override;
+};
+
 #endif

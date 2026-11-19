@@ -34,6 +34,8 @@ void GenericRogueNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& trig
 {
     NonCombatStrategy::InitTriggers(triggers);
 
+    if (sPlayerbotAIConfig.PvpCombatTactics)
+        triggers.push_back(new TriggerNode("pvp stealth", {NextAction("stealth", ACTION_EMERGENCY - 1)}));
     triggers.push_back(new TriggerNode("player has flag",
                                        { NextAction("sprint", ACTION_EMERGENCY + 1) }));
     triggers.push_back(new TriggerNode("enemy flagcarrier near",
@@ -46,5 +48,6 @@ void GenericRogueNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& trig
         new TriggerNode("off hand weapon no enchant",
                         { NextAction("use deadly poison on off hand", 19.0f) }));
 
-    triggers.push_back(new TriggerNode("often", { NextAction("unstealth", 30.0f) }));
+    triggers.push_back(new TriggerNode(sPlayerbotAIConfig.PvpCombatTactics ? "unstealth" : "often",
+                                       {NextAction("unstealth", ACTION_MOVE)}));
 }

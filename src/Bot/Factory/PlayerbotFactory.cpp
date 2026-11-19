@@ -5,6 +5,7 @@
  */
 
 #include "PlayerbotFactory.h"
+#include "BotRiding.h"
 #include "PlayerbotsDatabase.h"
 #include "AccountMgr.h"
 #include "AiFactory.h"
@@ -23,6 +24,7 @@
 #include "LFG.h"
 #include "LootMgr.h"
 #include "Mail.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "PerfMonitor.h"
 #include "PetDefines.h"
@@ -180,6 +182,37 @@ bool HasCreatureSpawnRow(uint32 entry)
     }();
 
     return spawnedEntries.find(entry) != spawnedEntries.end();
+}
+
+constexpr uint32 SPELL_CALL_PET = 883;
+constexpr uint32 SPELL_REVIVE_PET = 982;
+constexpr uint32 SPELL_SUMMON_IMP = 688;
+constexpr uint32 SPELL_SUMMON_FELHUNTER = 691;
+constexpr uint32 SPELL_SUMMON_FELGUARD = 30146;
+
+void TrainLoadoutHunterPet(Player* player, ObjectGuid petGuid, uint8 attempts)
+{
+    Pet* pet = player->GetPet();
+    if (!pet || pet->GetGUID() != petGuid || player->GetSession()->IsLoggingOut())
+        return;
+
+    if (pet->isBeingLoaded())
+    {
+        if (attempts)
+            player->m_Events.AddEventAtOffset([ownerGuid = player->GetGUID(), petGuid, attempts]
+            {
+                if (Player* owner = ObjectAccessor::FindConnectedPlayer(ownerGuid))
+                    TrainLoadoutHunterPet(owner, petGuid, attempts - 1);
+            }, Milliseconds(250));
+        return;
+    }
+
+    if (!pet->IsAlive())
+        player->CastSpell(player, SPELL_REVIVE_PET, true);
+
+    PlayerbotFactory factory(player, player->GetLevel());
+    factory.InitPet();
+    factory.InitPetTalents();
 }
 }
 
@@ -728,6 +761,27 @@ bool PlayerbotFactory::ResetLoadout(bool pvp, std::string& result, uint32 talent
     InitReagents();
     InitFood();
     InitPotions();
+    if (playerClass == CLASS_HUNTER && level >= 10)
+    {
+        InitPet();
+        if (Pet* pet = bot->GetPet())
+            TrainLoadoutHunterPet(bot, pet->GetGUID(), 40);
+    }
+    else if (playerClass == CLASS_WARLOCK)
+    {
+        if (Pet* pet = bot->GetPet(); pet && !pet->IsAlive())
+            bot->RemovePet(pet, PET_SAVE_NOT_IN_SLOT);
+
+        if (!bot->GetPet())
+        {
+            constexpr std::array<uint32, TALENT_TREE_COUNT> demonSpells =
+                {SPELL_SUMMON_FELHUNTER, SPELL_SUMMON_FELGUARD, SPELL_SUMMON_IMP};
+            uint32 summonSpell = bot->HasSpell(demonSpells[tree]) ? demonSpells[tree] : SPELL_SUMMON_IMP;
+            if (bot->HasSpell(summonSpell))
+                bot->CastSpell(bot, summonSpell, true);
+        }
+        InitPet();
+    }
     if (level == DEFAULT_MAX_LEVEL || level >= sPlayerbotAIConfig.MinEnchantingBotLevel)
         ApplyEnchantAndGemsNew();
     bot->DurabilityRepairAll(false, 1.0f, false);
@@ -824,59 +878,13 @@ void PlayerbotFactory::InitLoadoutSpells()
 
 void PlayerbotFactory::InitLoadoutMounts()
 {
-    enum LoadoutMountSpells : uint32
-    {
-        SPELL_SWIFT_WHITE_STEED = 23228,
-        SPELL_SWIFT_BROWN_WOLF = 23250,
-        SPELL_SWIFT_BROWN_RAM = 23238,
-        SPELL_SWIFT_MISTSABER = 23219,
-        SPELL_GREEN_SKELETAL_WARHORSE = 17465,
-        SPELL_GREAT_BROWN_KODO = 23249,
-        SPELL_SWIFT_GREEN_MECHANOSTRIDER = 23225,
-        SPELL_SWIFT_BLUE_RAPTOR = 23241,
-        SPELL_GREAT_BLUE_ELEKK = 35713,
-        SPELL_SWIFT_GREEN_HAWKSTRIDER = 35025,
-        SPELL_GOLDEN_GRYPHON = 32235,
-        SPELL_BLUE_WIND_RIDER = 32244,
-        SPELL_SWIFT_BLUE_GRYPHON = 32242,
-        SPELL_SWIFT_GREEN_WIND_RIDER = 32295
-    };
-    constexpr uint16 JOURNEYMAN_RIDING = 150;
-    constexpr uint16 EXPERT_RIDING = 225;
-    constexpr uint16 ARTISAN_RIDING = 300;
-    constexpr std::array<std::pair<uint8, uint32>, 10> groundMounts = {{{RACE_HUMAN, SPELL_SWIFT_WHITE_STEED},
-        {RACE_ORC, SPELL_SWIFT_BROWN_WOLF}, {RACE_DWARF, SPELL_SWIFT_BROWN_RAM},
-        {RACE_NIGHTELF, SPELL_SWIFT_MISTSABER}, {RACE_UNDEAD_PLAYER, SPELL_GREEN_SKELETAL_WARHORSE},
-        {RACE_TAUREN, SPELL_GREAT_BROWN_KODO}, {RACE_GNOME, SPELL_SWIFT_GREEN_MECHANOSTRIDER},
-        {RACE_TROLL, SPELL_SWIFT_BLUE_RAPTOR}, {RACE_DRAENEI, SPELL_GREAT_BLUE_ELEKK},
-        {RACE_BLOODELF, SPELL_SWIFT_GREEN_HAWKSTRIDER}}};
-
-    uint16 const riding = bot->GetPureSkillValue(SKILL_RIDING);
-    if (riding >= JOURNEYMAN_RIDING)
-        for (auto const& [race, spellId] : groundMounts)
-            if (bot->getRace() == race && sSpellMgr->GetSpellInfo(spellId))
-                bot->learnSpell(spellId, false);
-
-    if (riding >= EXPERT_RIDING)
-    {
-        uint32 spellId;
-        if (riding >= ARTISAN_RIDING)
-            spellId = bot->GetTeamId() == TEAM_ALLIANCE ? SPELL_SWIFT_BLUE_GRYPHON : SPELL_SWIFT_GREEN_WIND_RIDER;
-        else
-            spellId = bot->GetTeamId() == TEAM_ALLIANCE ? SPELL_GOLDEN_GRYPHON : SPELL_BLUE_WIND_RIDER;
-        if (sSpellMgr->GetSpellInfo(spellId))
-            bot->learnSpell(spellId, false);
-    }
+    InitializeLoadoutMounts(*bot);
 }
 
 void PlayerbotFactory::InitLoadoutSkills()
 {
     InitSkills(true);
-    constexpr std::array<std::pair<uint32, uint32>, 5> ridingSpells = {{{20, 33388}, {40, 33391},
-        {60, 34090}, {70, 34091}, {77, 54197}}};
-    for (auto const& [requiredLevel, spell] : ridingSpells)
-        if (level >= requiredLevel)
-            bot->learnSpell(spell, false);
+    InitializeLoadoutRidingSkills(*bot);
 
     constexpr std::array<uint16, 3> secondarySkills = {SKILL_FIRST_AID, SKILL_FISHING, SKILL_COOKING};
     for (uint16 skill : secondarySkills)
@@ -1023,12 +1031,11 @@ void PlayerbotFactory::InitPopulationLoadout(bool pvp, bool arena, uint8 role, b
     _populationPvp = pvp;
     _populationArena = arena;
     InitLoadoutSpells();
-    if (completeSkills)
-        InitLoadoutMounts();
     itemQuality = level == DEFAULT_MAX_LEVEL ? ITEM_QUALITY_EPIC : ITEM_QUALITY_RARE;
     gearScoreLimit = 0;
     InitSkills(true);
-    DestroyEquippedGear(bot);
+    if (completeSkills)
+        InitLoadoutMounts();
     InitEquipment(false, true);
     InitAmmo();
     if (completeSkills)
@@ -1800,288 +1807,162 @@ void PlayerbotFactory::InitConsumables()
 
 void PlayerbotFactory::InitPetTalents()
 {
-    if (bot->GetLevel() <= 70 && sPlayerbotAIConfig.LimitTalentsExpansion)
+    if (botAI && bot->GetLevel() <= 70 && sPlayerbotAIConfig.LimitTalentsExpansion)
         return;
 
     Pet* pet = bot->GetPet();
-    if (!pet)
-    {
-        // LOG_INFO("playerbots", "{} init pet talents failed with no pet", bot->GetName().c_str());
+    if (!pet || pet->getPetType() != HUNTER_PET || pet->isBeingLoaded())
         return;
-    }
-    CreatureTemplate const* ci = pet->GetCreatureTemplate();
-    if (!ci)
-    {
-        // LOG_INFO("playerbots", "{} init pet talents failed with no creature template", bot->GetName().c_str());
+
+    uint32 family = pet->GetCreatureTemplate()->family;
+    CreatureFamilyEntry const* petFamily = sCreatureFamilyStore.LookupEntry(family);
+    if (!petFamily || petFamily->petTalentType < 0)
         return;
-    }
-    CreatureFamilyEntry const* pet_family = sCreatureFamilyStore.LookupEntry(ci->family);
-    if (!pet_family || pet_family->petTalentType < 0)
-    {
-        // LOG_INFO("playerbots", "{} init pet talents failed with petTalentType < 0({})", bot->GetName().c_str(),
-        // pet_family->petTalentType);
+
+    pet->InitTalentForLevel();
+    if (!pet->GetFreeTalentPoints())
         return;
-    }
-    std::map<uint32, std::vector<TalentEntry const*>> spells;
-    bool diveTypePet = (1LL << ci->family) & diveMask;
 
-    for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
+    bool canDive = family < 64 && (diveMask & (uint64(1) << family));
+    std::vector<TalentEntry const*> talents;
+    for (uint32 id = 0; id < sTalentStore.GetNumRows(); ++id)
     {
-        TalentEntry const* talentInfo = sTalentStore.LookupEntry(i);
-        if (!talentInfo)
+        TalentEntry const* talent = sTalentStore.LookupEntry(id);
+        if (!talent)
             continue;
 
-        TalentTabEntry const* talentTabInfo = sTalentTabStore.LookupEntry(talentInfo->TalentTab);
+        TalentTabEntry const* tab = sTalentTabStore.LookupEntry(talent->TalentTab);
+        if (!tab || !(tab->petTalentMask & (1u << petFamily->petTalentType)))
+            continue;
 
-        // prevent learn talent for different family (cheating)
-        if (!((1 << pet_family->petTalentType) & talentTabInfo->petTalentMask))
+        bool dive = talent->TalentID == 2201 || talent->TalentID == 2208 || talent->TalentID == 2219 ||
+            talent->TalentID == 2203;
+        bool dash = talent->TalentID == 2119 || talent->TalentID == 2207 || talent->TalentID == 2111 ||
+            talent->TalentID == 2109;
+        if ((dive && !canDive) || (dash && canDive))
             continue;
-        bool diveClass = talentInfo->TalentID == 2201 || talentInfo->TalentID == 2208 || talentInfo->TalentID == 2219 ||
-                         talentInfo->TalentID == 2203;
-        if (diveClass && !diveTypePet)
-            continue;
-        bool dashClass = talentInfo->TalentID == 2119 || talentInfo->TalentID == 2207 || talentInfo->TalentID == 2111 ||
-                         talentInfo->TalentID == 2109;
-        if (dashClass && diveTypePet)
-            continue;
-        spells[talentInfo->Row].push_back(talentInfo);
+        talents.push_back(talent);
     }
 
-    std::vector<std::vector<uint32>> order =
-        sPlayerbotAIConfig.ParsedHunterPetLinkOrder[pet_family->petTalentType][20];
-    uint32 maxTalentPoints = pet->GetMaxTalentPointsForLevel(pet->GetLevel());
-
-    if (order.empty())
+    auto learn = [&](TalentEntry const* talent, uint32 maxRank)
     {
-        int row = 0;
-        for (auto i = spells.begin(); i != spells.end(); ++i, ++row)
+        uint32 points = pet->GetFreeTalentPoints();
+        for (uint32 rank = std::min<uint32>(maxRank, MAX_PET_TALENT_RANK); rank > 0; --rank)
         {
-            std::vector<TalentEntry const*>& spells_row = i->second;
-            if (spells_row.empty())
-            {
-                LOG_INFO("playerbots", "{}: No spells for talent row {}", bot->GetName().c_str(), i->first);
+            if (!talent->RankID[rank - 1])
                 continue;
-            }
-            int attemptCount = 0;
-            // keep learning for the last row
-            while (!spells_row.empty() &&
-                   ((((int)maxTalentPoints - (int)pet->GetFreeTalentPoints()) < 3 * (row + 1)) || (row == 5)) &&
-                   attemptCount++ < 10 && pet->GetFreeTalentPoints())
-            {
-                int index = urand(0, spells_row.size() - 1);
-                TalentEntry const* talentInfo = spells_row[index];
-                int maxRank = 0;
-                for (uint32 rank = 0; rank < std::min((uint32)MAX_TALENT_RANK, (uint32)pet->GetFreeTalentPoints()); ++rank)
-                {
-                    uint32 spellId = talentInfo->RankID[rank];
-                    if (!spellId)
-                        continue;
 
-                    maxRank = rank;
-                }
-                // LOG_INFO("playerbots", "{} learn pet talent {}({})", bot->GetName().c_str(), talentInfo->TalentID,
-                // maxRank);
-                if (talentInfo->DependsOn)
-                {
-                    bot->LearnPetTalent(pet->GetGUID(), talentInfo->DependsOn,
-                                        std::min(talentInfo->DependsOnRank, bot->GetFreeTalentPoints() - 1));
-                }
-                bot->LearnPetTalent(pet->GetGUID(), talentInfo->TalentID, maxRank);
-                spells_row.erase(spells_row.begin() + index);
-            }
-        }
-    }
-    else
-    {
-        uint32 spec = pet_family->petTalentType;
-        uint32 startPoints = pet->GetMaxTalentPointsForLevel(pet->GetLevel());
-        while (startPoints > 1 && startPoints < 20 &&
-               sPlayerbotAIConfig.ParsedHunterPetLinkOrder[spec][startPoints].size() == 0)
-        {
-            startPoints--;
-        }
-
-        for (uint32 points = startPoints; points <= 20; points++)
-        {
-            if (sPlayerbotAIConfig.ParsedHunterPetLinkOrder[spec][points].size() == 0)
-                continue;
-            for (std::vector<uint32>& p : sPlayerbotAIConfig.ParsedHunterPetLinkOrder[spec][points])
-            {
-                uint32 row = p[0], col = p[1], lvl = p[2];
-                uint32 talentID = 0;
-                uint32 learnLevel = 0;
-                std::vector<TalentEntry const*>& spell = spells[row];
-                for (TalentEntry const* talentInfo : spell)
-                {
-                    if (talentInfo->Col != col)
-                    {
-                        continue;
-                    }
-                    if (talentInfo->DependsOn)
-                    {
-                        bot->LearnPetTalent(pet->GetGUID(), talentInfo->DependsOn,
-                                            std::min(talentInfo->DependsOnRank, bot->GetFreeTalentPoints() - 1));
-                    }
-                    talentID = talentInfo->TalentID;
-
-                    uint32 currentTalentRank = 0;
-                    for (uint8 rank = 0; rank < MAX_TALENT_RANK; ++rank)
-                    {
-                        if (talentInfo->RankID[rank] && pet->HasSpell(talentInfo->RankID[rank]))
-                        {
-                            currentTalentRank = rank + 1;
-                            break;
-                        }
-                    }
-                    learnLevel = std::min(lvl, pet->GetFreeTalentPoints() + currentTalentRank) - 1;
-                }
-                bot->LearnPetTalent(pet->GetGUID(), talentID, learnLevel);
-                if (pet->GetFreeTalentPoints() == 0)
-                {
-                    break;
-                }
-            }
-            if (pet->GetFreeTalentPoints() == 0)
-            {
+            bot->LearnPetTalent(pet->GetGUID(), talent->TalentID, rank - 1);
+            if (pet->GetFreeTalentPoints() != points || pet->HasSpell(talent->RankID[rank - 1]))
                 break;
-            }
         }
-    }
+    };
+
+    auto const& orders = sPlayerbotAIConfig.ParsedHunterPetLinkOrder[petFamily->petTalentType];
+    uint32 budget = std::min<uint32>(pet->GetMaxTalentPointsForLevel(pet->GetLevel()), 20);
+    while (budget && orders[budget].empty())
+        --budget;
+
+    if (budget)
+        for (auto const& step : orders[budget])
+        {
+            if (!pet->GetFreeTalentPoints())
+                break;
+            if (step.size() != 3)
+                continue;
+
+            auto talent = std::ranges::find_if(talents, [&](TalentEntry const* entry)
+            {
+                return entry->Row == step[0] && entry->Col == step[1];
+            });
+            if (talent != talents.end())
+                learn(*talent, step[2]);
+        }
+
+    // Use remaining points with the same rank, row and prerequisite checks as the pet talent UI.
+    uint32 points;
+    do
+    {
+        points = pet->GetFreeTalentPoints();
+        for (TalentEntry const* talent : talents)
+        {
+            if (!pet->GetFreeTalentPoints())
+                break;
+            learn(talent, MAX_PET_TALENT_RANK);
+        }
+    } while (pet->GetFreeTalentPoints() && pet->GetFreeTalentPoints() < points);
+
     bot->SendTalentsInfoData(true);
+    pet->SavePetToDB(PET_SAVE_AS_CURRENT);
 }
 
 void PlayerbotFactory::InitPet()
 {
     Pet* pet = bot->GetPet();
-
-    if (!pet && bot->GetPetStable() && bot->GetPetStable()->CurrentPet)
-        return;
-
     if (!pet)
     {
-        if (bot->getClass() != CLASS_HUNTER || bot->GetLevel() < 10)
+        if (bot->getClass() != CLASS_HUNTER || bot->GetLevel() < 10 || !bot->IsInWorld() ||
+            bot->IsBeingTeleported())
             return;
 
-        Map* map = bot->GetMap();
-        if (!map)
-            return;
-
-        std::vector<uint32> ids;
-
-        CreatureTemplateContainer const* creatures = sObjectMgr->GetCreatureTemplates();
-
-        for (CreatureTemplateContainer::const_iterator itr = creatures->begin(); itr != creatures->end(); ++itr)
+        PetStable const* stable = bot->GetPetStable();
+        if (stable && (stable->CurrentPet || stable->GetUnslottedHunterPet()))
         {
-            if (!itr->second.IsTameable(bot->CanTameExoticPets()))
-                continue;
-
-            if (!HasCreatureSpawnRow(itr->first))
-                continue;
-
-            if (itr->second.minlevel > bot->GetLevel())
-                continue;
-
-            bool onlyWolf = sPlayerbotAIConfig.HunterWolfPet == 2 ||
-                            (sPlayerbotAIConfig.HunterWolfPet == 1 &&
-                             bot->GetLevel() >= sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL));
-            // Wolf only (for higher dps)
-            if (onlyWolf && itr->second.family != CREATURE_FAMILY_WOLF)
-                continue;
-
-            // Exclude configured pet families
-            if (std::find(sPlayerbotAIConfig.ExcludedHunterPetFamilies.begin(),
-                          sPlayerbotAIConfig.ExcludedHunterPetFamilies.end(),
-                          itr->second.family) != sPlayerbotAIConfig.ExcludedHunterPetFamilies.end())
-                continue;
-
-            ids.push_back(itr->first);
-        }
-
-        if (ids.empty())
-        {
-            LOG_ERROR("playerbots", "No pets available for bot {} ({} level)", bot->GetName().c_str(), bot->GetLevel());
+            if (bot->HasSpell(SPELL_CALL_PET) && !bot->IsPetNeedBeTemporaryUnsummoned())
+                bot->CastSpell(bot, SPELL_CALL_PET, true);
             return;
         }
 
-        for (uint32 i = 0; i < 10; i++)
+        bool onlyWolf = sPlayerbotAIConfig.HunterWolfPet == 2 ||
+            (sPlayerbotAIConfig.HunterWolfPet == 1 && bot->GetLevel() >= sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL));
+        std::vector<uint32> entries;
+        auto const& excludedFamilies = sPlayerbotAIConfig.ExcludedHunterPetFamilies;
+        for (auto const& [entry, creature] : *sObjectMgr->GetCreatureTemplates())
+            if (creature.IsTameable(bot->CanTameExoticPets()) && creature.minlevel <= bot->GetLevel() &&
+                creature.Name.size() <= 21 && HasCreatureSpawnRow(entry) &&
+                (!onlyWolf || creature.family == CREATURE_FAMILY_WOLF) &&
+                std::ranges::find(excludedFamilies, creature.family) == excludedFamilies.end())
+                entries.push_back(entry);
+
+        while (!entries.empty())
         {
-            uint32 index = urand(0, ids.size() - 1);
-            CreatureTemplate const* co = sObjectMgr->GetCreatureTemplate(ids[index]);
-            if (!co)
-                continue;
-            if (co->Name.size() > 21)
-                continue;
-            if (bot->GetPetStable() && bot->GetPetStable()->CurrentPet)
-            {
-                auto petGuid = bot->GetPetStable()->CurrentPet.value(); // To correct the build warnin in VS
-                // bot->GetPetStable()->CurrentPet.value();
-                // bot->GetPetStable()->CurrentPet.reset();
-                bot->RemovePet(nullptr, PET_SAVE_AS_CURRENT);
-                bot->RemovePet(nullptr, PET_SAVE_NOT_IN_SLOT);
-            }
-            if (bot->GetPetStable() && bot->GetPetStable()->GetUnslottedHunterPet())
-            {
-                bot->GetPetStable()->UnslottedPets.clear();
-                bot->RemovePet(nullptr, PET_SAVE_AS_CURRENT);
-                bot->RemovePet(nullptr, PET_SAVE_NOT_IN_SLOT);
-            }
-            // }
-            pet = bot->CreateTamedPetFrom(co->Entry, 0);
-            if (!pet)
-            {
-                continue;
-            }
-
-            // prepare visual effect for levelup
-            pet->SetUInt32Value(UNIT_FIELD_LEVEL, bot->GetLevel() - 1);
-
-            // add to world
-            pet->GetMap()->AddToMap(pet->ToCreature());
-
-            // visual effect for levelup
-            pet->SetUInt32Value(UNIT_FIELD_LEVEL, bot->GetLevel());
-
-            // caster have pet now
-            bot->SetMinion(pet, true);
-
-            pet->InitTalentForLevel();
-
-            pet->SavePetToDB(PET_SAVE_AS_CURRENT);
-            bot->PetSpellInitialize();
-            break;
+            auto index = urand(0, entries.size() - 1);
+            uint32 entry = entries[index];
+            entries[index] = entries.back();
+            entries.pop_back();
+            pet = bot->CreateTamedPetFrom(entry, 0);
+            if (pet)
+                break;
         }
+
+        if (!pet)
+        {
+            LOG_ERROR("playerbots", "No tameable pet found for {} at level {}", bot->GetName(), bot->GetLevel());
+            return;
+        }
+
+        pet->GetMap()->AddToMap(pet->ToCreature());
+        bot->SetMinion(pet, true);
+        pet->InitTalentForLevel();
     }
 
-    if (pet)
-    {
-        pet->InitStatsForLevel(bot->GetLevel());
-        pet->SetLevel(bot->GetLevel());
-        pet->SetPower(POWER_HAPPINESS, pet->GetMaxPower(Powers(POWER_HAPPINESS)));
-        pet->SetHealth(pet->GetMaxHealth());
-    }
-    else
-    {
-        LOG_ERROR("playerbots", "Cannot create pet for bot {}", bot->GetName().c_str());
+    if (pet->isBeingLoaded() || !pet->IsAlive())
         return;
-    }
 
-    // LOG_INFO("playerbots", "Start make spell auto cast for {} spells. {} already auto casted.", pet->m_spells.size(),
-    // pet->GetPetAutoSpellSize());
-    for (PetSpellMap::const_iterator itr = pet->m_spells.begin(); itr != pet->m_spells.end(); ++itr)
-    {
-        if (itr->second.state == PETSPELL_REMOVED)
-            continue;
+    pet->GivePetLevel(bot->GetLevel());
+    pet->InitLevelupSpellsForLevel();
+    if (pet->getPetType() == HUNTER_PET)
+        pet->SetPower(POWER_HAPPINESS, pet->GetMaxPower(POWER_HAPPINESS));
+    pet->SetFullHealth();
 
-        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(itr->first);
-        if (!spellInfo)
-            continue;
+    if (botAI)
+        for (auto const& [spell, state] : pet->m_spells)
+            if (state.state != PETSPELL_REMOVED)
+                if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell); info && info->IsAutocastable())
+                    pet->ToggleAutocast(info, true);
 
-        if (spellInfo->IsPassive())
-        {
-            continue;
-        }
-        pet->ToggleAutocast(spellInfo, true);
-    }
+    pet->SavePetToDB(PET_SAVE_AS_CURRENT);
+    bot->PetSpellInitialize();
 }
 
 void PlayerbotFactory::ClearSkills()
@@ -2796,7 +2677,32 @@ void Shuffle(std::vector<uint32>& items)
 //     }
 // }
 
-void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
+bool PlayerbotFactory::HasBaselineEquipment(Player const* bot)
+{
+    if (bot->GetLevel() < 5)
+        return true;
+    for (uint8 slot : {EQUIPMENT_SLOT_MAINHAND, EQUIPMENT_SLOT_CHEST, EQUIPMENT_SLOT_LEGS, EQUIPMENT_SLOT_FEET})
+        if (!bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            return false;
+    return true;
+}
+
+bool PlayerbotFactory::RepairMissingEquipment(Player* bot)
+{
+    if (HasBaselineEquipment(bot))
+        return true;
+    // A strict endgame loadout can have no usable candidates; retain its gear and fill gaps with ordinary gear.
+    PlayerbotFactory factory(bot, bot->GetLevel(), ITEM_QUALITY_RARE);
+    factory.InitSkills(true);
+    factory.InitEquipment(true, false, true);
+    factory.InitAmmo();
+    bool const ready = HasBaselineEquipment(bot);
+    LOG_INFO("playerbots", "Population equipment repair: bot {} level {} baseline equipment ready {}",
+        bot->GetName(), bot->GetLevel(), ready);
+    return ready;
+}
+
+void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance, bool onlyMissing)
 {
     if (level < 5)
     {
@@ -2857,9 +2763,14 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
 
     // Pre-select CC-break trinket for PvP specs: best available by item level
     // that the bot meets the level requirement for.
-    // Humans (Every Man for Himself) and Undead (Will of the Forsaken) have a
-    // racial that shares the PvP trinket cooldown, so they don't need one.
-    bool racialHasCcBreak = (bot->getRace() == RACE_HUMAN || bot->getRace() == RACE_UNDEAD_PLAYER);
+    constexpr uint32 SPELL_EVERY_MAN_FOR_HIMSELF = 59752;
+    constexpr uint32 SPELL_WILL_OF_THE_FORSAKEN = 7744;
+    auto hasActiveRacial = [this](uint32 spellId)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        return info && !info->IsPassive() && bot->HasSpell(spellId);
+    };
+    bool racialHasCcBreak = hasActiveRacial(SPELL_EVERY_MAN_FOR_HIMSELF) || hasActiveRacial(SPELL_WILL_OF_THE_FORSAKEN);
     uint32 pvpTrinket1 = 0;
     if (isPvp && level >= 50 && !racialHasCcBreak)
     {
@@ -2905,13 +2816,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
         calculator.SetExcludeResilience(isTrinketSlot);
 
         Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
-
-        if (second_chance && oldItem)
-        {
-            bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
-        }
-
-        oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        if (onlyMissing && oldItem)
+            continue;
 
         // PvP specs: force TRINKET1 to the best available CC-break trinket.
         if (slot == EQUIPMENT_SLOT_TRINKET1 && pvpTrinket1 != 0)
@@ -3169,7 +3075,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool second_chance)
             calculator.SetExcludeResilience(isTrinketSlot);
 
             if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
-                bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
+                continue;
 
             std::vector<std::pair<uint32, int32>>& ids = items[slot];
             if (ids.empty())
@@ -4522,6 +4428,12 @@ void PlayerbotFactory::AutoGear(Player* bot, uint32 itemQuality, uint32 ilvl, bo
 
 void PlayerbotFactory::InitMounts()
 {
+    if (sPlayerbotAIConfig.AutoTrainRiding)
+    {
+        InitializeBotRiding(bot);
+        return;
+    }
+
     uint32 firstmount = sPlayerbotAIConfig.UseGroundMountAtMinLevel;
     uint32 secondmount = sPlayerbotAIConfig.UseFastGroundMountAtMinLevel;
     uint32 thirdmount = sPlayerbotAIConfig.UseFlyMountAtMinLevel;
@@ -4816,7 +4728,7 @@ void PlayerbotFactory::InitReagents()
     switch (bot->getClass())
     {
         case CLASS_DEATH_KNIGHT:
-        if (level >= 56)
+            if (level >= 55)
                 items.push_back({37201, 40});   // Corpse Dust
             break;
         case CLASS_DRUID:

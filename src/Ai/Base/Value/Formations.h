@@ -23,6 +23,7 @@ public:
     virtual std::string const GetTargetName() { return ""; }
     virtual WorldLocation GetLocation() { return NullLocation; }
     virtual float GetMaxDistance() { return sPlayerbotAIConfig.FollowDistance; }
+    virtual float GetProximityFollowRadius() { return 0.0f; }
     static WorldLocation NullLocation;
     static bool IsNullLocation(WorldLocation const& loc);
 

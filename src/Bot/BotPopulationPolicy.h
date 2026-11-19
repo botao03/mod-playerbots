@@ -13,6 +13,13 @@
 #include <utility>
 #include <vector>
 
+constexpr uint32_t BOT_POPULATION_STAGING_PHASE_MASK = 1u << 30;
+
+constexpr bool IsPopulationStaged(bool ready, uint32_t phase)
+{
+    return !ready || phase == BOT_POPULATION_STAGING_PHASE_MASK;
+}
+
 inline bool IsPopulationCapital(uint32_t zone)
 {
     constexpr std::array<uint32_t, 10> capitals = {1519, 1537, 1657, 1637, 1497, 1638, 3487, 3557, 3703, 4395};
@@ -75,6 +82,19 @@ inline std::vector<PopulationZoneDemand> PlanWorldPopulation(std::vector<Populat
     for (uint32_t index = 0; index < zones.size(); ++index)
         zones[index].Bots = totalBots / zones.size() + (index < totalBots % zones.size() ? 1u : 0u);
     return zones;
+}
+
+inline std::pair<uint32_t, uint32_t> SplitWorldPopulationByFaction(uint32_t bots,
+    uint32_t alliancePlayers, uint32_t hordePlayers)
+{
+    uint64_t const players = uint64_t(alliancePlayers) + hordePlayers;
+    if (!bots || !players)
+        return {0, 0};
+
+    uint32_t allianceBots = uint32_t((uint64_t(bots) * alliancePlayers + players / 2) / players);
+    if (bots >= 2 && alliancePlayers && hordePlayers)
+        allianceBots = std::clamp(allianceBots, 1u, bots - 1);
+    return {allianceBots, bots - allianceBots};
 }
 
 inline bool ReserveArenaTeamSlots(uint32_t requested, uint32_t size, uint32_t& reserved)

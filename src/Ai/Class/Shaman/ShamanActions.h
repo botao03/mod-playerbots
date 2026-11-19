@@ -137,11 +137,11 @@ public:
         CastBuffSpellAction(botAI, "shamanistic rage") {}
 };
 
-class CastFeralSpiritAction : public CastSpellAction
+class CastFeralSpiritAction : public CastBuffSpellAction
 {
 public:
     CastFeralSpiritAction(PlayerbotAI* botAI) :
-        CastSpellAction(botAI, "feral spirit") {}
+        CastBuffSpellAction(botAI, "feral spirit") {}
 };
 
 class CastSpiritWalkAction : public Action

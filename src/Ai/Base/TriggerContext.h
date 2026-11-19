@@ -201,6 +201,7 @@ public:
         creators["wants in bg"] = &TriggerContext::player_wants_in_bg;
 
         creators["mounted"] = &TriggerContext::mounted;
+        creators["master mount state"] = &TriggerContext::master_mount_state;
 
         // move to/enter dark portal if near
         creators["near dark portal"] = &TriggerContext::near_dark_portal;
@@ -421,6 +422,7 @@ private:
     static Trigger* player_is_in_BATTLEGROUND(PlayerbotAI* botAI) { return new PlayerIsInBattleground(botAI); }
     static Trigger* player_is_in_BATTLEGROUND_no_flag(PlayerbotAI* botAI) { return new PlayerIsInBattlegroundWithoutFlag(botAI); }
     static Trigger* mounted(PlayerbotAI* botAI) { return new IsMountedTrigger(botAI); }
+    static Trigger* master_mount_state(PlayerbotAI* botAI) { return new MasterMountStateTrigger(botAI); }
     static Trigger* at_dark_portal_outland(PlayerbotAI* botAI) { return new AtDarkPortalOutlandTrigger(botAI); }
     static Trigger* at_dark_portal_azeroth(PlayerbotAI* botAI) { return new AtDarkPortalAzerothTrigger(botAI); }
     static Trigger* in_vehicle(PlayerbotAI* botAI) { return new InVehicleTrigger(botAI); }

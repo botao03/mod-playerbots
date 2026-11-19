@@ -6,6 +6,7 @@
 
 #include "BotPopulation.h"
 #include "MovementActions.h"
+#include "GroupTeleportFollow.h"
 #include "Corpse.h"
 #include "Event.h"
 #include "FleeManager.h"
@@ -919,7 +920,7 @@ bool MovementAction::IsWaitingForLastMove(MovementPriority priority)
 
 bool MovementAction::IsMovingAllowed()
 {
-    return botAI->CanMove();
+    return !IsWaitingForFlyingMaster(bot) && botAI->CanMove();
 }
 
 bool MovementAction::Follow(Unit* target, float distance) { return Follow(target, distance, GetFollowAngle()); }
@@ -1090,6 +1091,9 @@ void MovementAction::UpdateMovementState()
 
 bool MovementAction::Follow(Unit* target, float distance, float angle)
 {
+    if (IsWaitingForFlyingMaster(bot))
+        return false;
+
     UpdateMovementState();
 
     if (!target)

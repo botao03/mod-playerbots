@@ -6,9 +6,12 @@
 
 #include "PvpCombatTriggers.h"
 
+#include "GameTime.h"
 #include "Playerbots.h"
 #include "PvpCombatValues.h"
+#include "RogueOpeningActions.h"
 #include "Spell.h"
+#include "SpellAuras.h"
 #include "SpellInfo.h"
 
 namespace
@@ -17,18 +20,48 @@ constexpr uint8 PVP_DEFENSIVE_HEALTH_PCT = 50;
 constexpr uint8 PVP_CRITICAL_HEALTH_PCT = 30;
 constexpr uint8 PVP_MAGIC_PRESSURE_HEALTH_PCT = 70;
 constexpr uint8 PVP_LOW_POWER_PCT = 25;
+constexpr uint8 PVP_EXECUTE_HEALTH_PCT = 20;
+constexpr time_t PVP_DUEL_STEALTH_GRACE_SECONDS = 3;
+constexpr uint32 SPELL_ROGUE_SAP_RANK_1 = 6770;
 
 constexpr PvpSituation Situations[] = {
-    PvpSituation::Controlled,    PvpSituation::Feared,       PvpSituation::FearOrSap,   PvpSituation::Rooted,
-    PvpSituation::Slowed,        PvpSituation::Stunned,      PvpSituation::Hurt,        PvpSituation::Critical,
-    PvpSituation::IncomingMagic, PvpSituation::EnemyCasting, PvpSituation::EnemyClose,  PvpSituation::Chase,
-    PvpSituation::Burst,         PvpSituation::Afflicted,    PvpSituation::MagicDebuff, PvpSituation::LowPower};
+    PvpSituation::DuelPreparation, PvpSituation::DuelStart,            PvpSituation::Opening,
+    PvpSituation::CasterOpening,   PvpSituation::SapOpening,           PvpSituation::SapAfterBlind,
+    PvpSituation::RogueRestealth,   PvpSituation::RogueVanishAfterBlind, PvpSituation::RogueReset,
+    PvpSituation::MeleePressure,   PvpSituation::EnemyControlled,      PvpSituation::Controlled,
+    PvpSituation::Feared,          PvpSituation::FearOrSap,            PvpSituation::Rooted,
+    PvpSituation::Slowed,          PvpSituation::Stunned,              PvpSituation::Hurt,
+    PvpSituation::Critical,        PvpSituation::IncomingMagic,        PvpSituation::EnemyCasting,
+    PvpSituation::EnemyClose,      PvpSituation::Chase,                PvpSituation::Burst,
+    PvpSituation::Afflicted,       PvpSituation::MagicDebuff,          PvpSituation::LowPower};
 }  // namespace
 
 char const* PvpTriggerName(PvpSituation situation)
 {
     switch (situation)
     {
+        case PvpSituation::DuelPreparation:
+            return "pvp duel preparation";
+        case PvpSituation::DuelStart:
+            return "pvp duel start";
+        case PvpSituation::Opening:
+            return "pvp opening";
+        case PvpSituation::CasterOpening:
+            return "pvp caster opening";
+        case PvpSituation::SapOpening:
+            return "pvp sap opening";
+        case PvpSituation::SapAfterBlind:
+            return "pvp sap after blind";
+        case PvpSituation::RogueRestealth:
+            return "pvp rogue restealth";
+        case PvpSituation::RogueVanishAfterBlind:
+            return "pvp rogue vanish after blind";
+        case PvpSituation::RogueReset:
+            return "pvp rogue reset";
+        case PvpSituation::MeleePressure:
+            return "pvp melee pressure";
+        case PvpSituation::EnemyControlled:
+            return "pvp enemy controlled";
         case PvpSituation::Controlled:
             return "pvp controlled";
         case PvpSituation::Feared:
@@ -65,6 +98,46 @@ char const* PvpTriggerName(PvpSituation situation)
     return "";
 }
 
+Unit* GetPvpDuelOpponent(PlayerbotAI* botAI)
+{
+    Player* bot = botAI->GetBot();
+    if (!sPlayerbotAIConfig.PvpCombatTactics || !bot->IsAlive() || !bot->IsInWorld() || bot->IsBeingTeleported() ||
+        bot->IsInFlight() || bot->GetVehicle() || bot->m_mover != bot || !IsAcceptedDuel(bot))
+        return nullptr;
+
+    Player* opponent = bot->duel->Opponent;
+    return opponent && opponent->IsAlive() && opponent->IsInWorld() && bot->IsInMap(opponent) ? opponent : nullptr;
+}
+
+Spell* GetPvpEnemyCast(Unit* opponent)
+{
+    if (!opponent || opponent->HasUnitState(UNIT_STATE_CONTROLLED))
+        return nullptr;
+
+    for (CurrentSpellTypes slot : {CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL})
+    {
+        Spell* spell = opponent->GetCurrentSpell(slot);
+        if (!spell || (spell->getState() != SPELL_STATE_PREPARING && spell->getState() != SPELL_STATE_CASTING) ||
+            !spell->GetSpellInfo())
+            continue;
+
+        SpellInfo const* info = spell->GetSpellInfo();
+        if (!info->IsPositive() || info->HasEffect(SPELL_EFFECT_HEAL) || info->HasEffect(SPELL_EFFECT_HEAL_PCT) ||
+            info->HasAura(SPELL_AURA_PERIODIC_HEAL))
+            return spell;
+    }
+    return nullptr;
+}
+
+Aura const* GetPvpRogueControl(Player const* bot, Unit const* target)
+{
+    if (bot->getClass() != CLASS_ROGUE || !target->IsPlayer())
+        return nullptr;
+    if (Aura const* sap = target->GetAuraOfRankedSpell(SPELL_ROGUE_SAP_RANK_1, bot->GetGUID()))
+        return sap;
+    return target->GetAura(PVP_ROGUE_BLIND, bot->GetGUID());
+}
+
 Unit* GetPvpOpponent(PlayerbotAI* botAI)
 {
     Player* bot = botAI->GetBot();
@@ -73,7 +146,8 @@ Unit* GetPvpOpponent(PlayerbotAI* botAI)
         return nullptr;
 
     bool dueling = bot->duel && bot->duel->State == DUEL_STATE_IN_PROGRESS;
-    if (!bot->IsInCombat() && !dueling)
+    bool inPvpFight = bot->IsInCombat() || dueling;
+    if (!inPvpFight && (bot->getClass() != CLASS_ROGUE || botAI->GetState() != BOT_STATE_COMBAT))
         return nullptr;
 
     Unit* target = botAI->GetAiObjectContext()->GetValue<Unit*>("current target")->Get();
@@ -81,7 +155,17 @@ Unit* GetPvpOpponent(PlayerbotAI* botAI)
         target = bot->duel->Opponent;
 
     if (!target || !target->IsInWorld() || !target->IsAlive() || target->GetMap() != bot->GetMap() ||
-        !target->IsControlledByPlayer() || (!bot->IsValidAttackTarget(target) && !bot->IsCharmed()))
+        !target->IsControlledByPlayer() || !bot->CanSeeOrDetect(target) ||
+        (!bot->IsValidAttackTarget(target) && !bot->IsCharmed()))
+        return nullptr;
+
+    // The combat engine keeps the current target during a rogue's out-of-combat opener.
+    if (!inPvpFight && (!target->IsPlayer() || !bot->IsWithinDistInMap(target, sPlayerbotAIConfig.SightDistance) ||
+                        (!bot->HasStealthAura() && !GetPvpRogueControl(bot, target))))
+        return nullptr;
+
+    if (!inPvpFight && (sPlayerbotAIConfig.IsPvpProhibited(bot->GetZoneId(), bot->GetAreaId()) ||
+                        sPlayerbotAIConfig.IsPvpProhibited(target->GetZoneId(), target->GetAreaId())))
         return nullptr;
 
     return target;
@@ -106,6 +190,27 @@ Spell* GetIncomingMagicSpell(Unit* caster, Player* bot)
 
 bool IsPvpSituationActive(PlayerbotAI* botAI, PvpSituation situation)
 {
+    if (situation == PvpSituation::DuelPreparation || situation == PvpSituation::DuelStart)
+    {
+        Unit* opponent = GetPvpDuelOpponent(botAI);
+        if (!opponent)
+            return false;
+        Player* bot = botAI->GetBot();
+        Unit* target = botAI->GetAiObjectContext()->GetValue<Unit*>("current target")->Get();
+        if (situation == PvpSituation::DuelPreparation)
+            return bot->duel->State == DUEL_STATE_COUNTDOWN || (!bot->IsInCombat() && target != opponent);
+        if (bot->getClass() == CLASS_ROGUE && !bot->IsInCombat() && !bot->HasStealthAura() &&
+            bot->duel->State == DUEL_STATE_IN_PROGRESS &&
+            GameTime::GetGameTime().count() < bot->duel->StartTime + PVP_DUEL_STEALTH_GRACE_SECONDS)
+        {
+            uint32 stealth = botAI->GetAiObjectContext()->GetValue<uint32>("spell id", "stealth")->Get();
+            if (stealth && bot->HasSpell(stealth) && !bot->HasSpellCooldown(stealth))
+                return false;
+        }
+        return bot->duel->State == DUEL_STATE_IN_PROGRESS && bot->CanSeeOrDetect(opponent) &&
+               bot->IsValidAttackTarget(opponent) && (target != opponent || botAI->GetState() != BOT_STATE_COMBAT);
+    }
+
     Unit* opponent = GetPvpOpponent(botAI);
     if (!opponent)
         return false;
@@ -114,6 +219,51 @@ bool IsPvpSituationActive(PlayerbotAI* botAI, PvpSituation situation)
     bool rooted = bot->HasAuraType(SPELL_AURA_MOD_ROOT);
     switch (situation)
     {
+        case PvpSituation::DuelPreparation:
+        case PvpSituation::DuelStart:
+            return false;
+        case PvpSituation::Opening:
+            return bot->HasStealthAura() || botAI->HasAura("shadow dance", bot);
+        case PvpSituation::CasterOpening:
+        {
+            Player* opponentPlayer = opponent->ToPlayer();
+            return opponentPlayer && (bot->HasStealthAura() || botAI->HasAura("shadow dance", bot)) &&
+                   opponentPlayer->getPowerType() == POWER_MANA && !PlayerbotAI::IsMelee(opponentPlayer);
+        }
+        case PvpSituation::SapOpening:
+            return bot->getClass() == CLASS_ROGUE && GetPvpDuelOpponent(botAI) == opponent &&
+                   CanRogueSapTarget(opponent) && bot->HasStealthAura() && !bot->IsInCombat() &&
+                   !opponent->IsInCombat() && !opponent->HasBreakableByDamageCrowdControlAura();
+        case PvpSituation::SapAfterBlind:
+        case PvpSituation::RogueVanishAfterBlind:
+        {
+            if (situation == PvpSituation::SapAfterBlind)
+            {
+                if (!bot->HasStealthAura() || bot->IsInCombat() || opponent->IsInCombat() ||
+                    !CanRogueSapTarget(opponent))
+                    return false;
+            }
+            else if (!bot->IsInCombat() || bot->HasStealthAura() || !bot->IsWithinMeleeRange(opponent))
+                return false;
+
+            Aura const* control = GetPvpRogueControl(bot, opponent);
+            return control && control->GetId() == PVP_ROGUE_BLIND && control->GetDuration() > 0 &&
+                   control->GetDuration() <= PVP_ROGUE_CONTROL_CHAIN_WINDOW_MS;
+        }
+        case PvpSituation::RogueRestealth:
+            return !bot->IsInCombat() && !bot->HasStealthAura() && GetPvpRogueControl(bot, opponent);
+        case PvpSituation::RogueReset:
+            return bot->getClass() == CLASS_ROGUE && bot->IsInCombat() && !bot->HasStealthAura() &&
+                   !GetPvpRogueControl(bot, opponent) &&
+                   (bot->HealthBelowPct(PVP_CRITICAL_HEALTH_PCT) ||
+                    (bot->HealthBelowPct(PVP_DEFENSIVE_HEALTH_PCT) &&
+                     !opponent->HealthBelowPct(PVP_EXECUTE_HEALTH_PCT)) ||
+                    (rooted && !bot->IsWithinMeleeRange(opponent)));
+        case PvpSituation::EnemyControlled:
+            return opponent->HasBreakableByDamageCrowdControlAura();
+        case PvpSituation::MeleePressure:
+            return !bot->HasStealthAura() && bot->IsWithinMeleeRange(opponent) &&
+                   !opponent->HasBreakableByDamageCrowdControlAura();
         case PvpSituation::Controlled:
             return rooted || bot->HasAuraType(SPELL_AURA_MOD_STUN) || bot->HasAuraType(SPELL_AURA_MOD_FEAR) ||
                    bot->HasAuraType(SPELL_AURA_MOD_CONFUSE) || bot->HasAuraType(SPELL_AURA_MOD_CHARM) ||
@@ -143,13 +293,7 @@ bool IsPvpSituationActive(PlayerbotAI* botAI, PvpSituation situation)
             return GetIncomingMagicSpell(botAI->GetUnit(caster), bot);
         }
         case PvpSituation::EnemyCasting:
-        {
-            Spell* spell = opponent->GetCurrentSpell(CURRENT_GENERIC_SPELL);
-            if (!spell)
-                spell = opponent->GetCurrentSpell(CURRENT_CHANNELED_SPELL);
-            return spell && spell->GetSpellInfo() && spell->getState() != SPELL_STATE_FINISHED &&
-                   !opponent->HasAuraType(SPELL_AURA_MOD_SILENCE);
-        }
+            return GetPvpEnemyCast(opponent) && !opponent->HasAuraType(SPELL_AURA_MOD_SILENCE);
         case PvpSituation::EnemyClose:
             return bot->IsWithinMeleeRange(opponent) &&
                    (opponent->GetVictim() == bot || opponent->GetTarget() == bot->GetGUID()) &&
@@ -167,7 +311,9 @@ bool IsPvpSituationActive(PlayerbotAI* botAI, PvpSituation situation)
                    !(botAI->GetAiObjectContext()->GetValue<uint32>("pvp debuff flags")->Get() &
                      PVP_OPPONENT_BREAKABLE_CC) &&
                    !opponent->HasAuraType(SPELL_AURA_SCHOOL_IMMUNITY) &&
-                   (!PlayerbotAI::IsMelee(bot) || bot->IsWithinMeleeRange(opponent));
+                   (!PlayerbotAI::IsMelee(bot) || bot->IsWithinMeleeRange(opponent)) &&
+                   (opponent->HealthBelowPct(PVP_DEFENSIVE_HEALTH_PCT) ||
+                    opponent->HasUnitState(UNIT_STATE_CONTROLLED) || opponent->HasAuraType(SPELL_AURA_MOD_SILENCE));
         case PvpSituation::LowPower:
         {
             Powers power = bot->getPowerType();

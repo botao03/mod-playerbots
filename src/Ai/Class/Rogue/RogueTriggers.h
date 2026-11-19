@@ -96,6 +96,13 @@ public:
     bool IsActive() override;
 };
 
+class PvpStealthTrigger : public Trigger
+{
+public:
+    PvpStealthTrigger(PlayerbotAI* botAI) : Trigger(botAI, "pvp stealth") {}
+    bool IsActive() override;
+};
+
 class SapTrigger : public HasCcTargetTrigger
 {
 public:

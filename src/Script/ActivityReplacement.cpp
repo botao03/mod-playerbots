@@ -13,6 +13,7 @@
 #include "Group.h"
 #include "GroupMgr.h"
 #include "GroupScript.h"
+#include "InstanceExitCleanup.h"
 #include "LFGMgr.h"
 #include "ObjectAccessor.h"
 #include "Opcodes.h"
@@ -39,7 +40,7 @@ bool Enabled() { return sPlayerbotAIConfig.PopulationEnabled; }
 
 enum class ReplacementEventType
 {
-    GroupKick, GroupAdd, GroupDisband, BattlegroundLeave, BattlegroundAdd, BootVote
+    GroupRemove, GroupAdd, GroupDisband, BattlegroundLeave, BattlegroundAdd, BootVote
 };
 
 struct ReplacementEvent
@@ -54,6 +55,7 @@ struct ReplacementEvent
     bool InProgress = false;
     bool HumanApproval = false;
     bool BotPending = false;
+    bool ServerInitiated = false;
     int64 Time = NowMilliseconds();
 };
 
@@ -291,7 +293,8 @@ public:
         if (group->isLFGGroup())
         {
             lfg::LfgState state = sLFGMgr->GetState(assignment.Owner);
-            if (state != lfg::LFG_STATE_DUNGEON && state != lfg::LFG_STATE_QUEUED)
+            if ((state != lfg::LFG_STATE_DUNGEON && state != lfg::LFG_STATE_QUEUED) ||
+                sLFGMgr->HasPendingDungeonReplacement(assignment.Owner))
                 return;
             sLFGMgr->InitializeLockedDungeons(bot, group);
             uint32 dungeon = sLFGMgr->GetDungeon(assignment.Owner, false);
@@ -378,11 +381,11 @@ private:
                 entry->second.Vacancies.Added();
             return;
         }
-        if (event.Type == ReplacementEventType::GroupKick)
+        if (event.Type == ReplacementEventType::GroupRemove)
         {
             Group* group = sGroupMgr->GetGroupByGUID(event.Group.GetCounter());
             Player* client = FindDungeonClient(group);
-            if (!client)
+            if (!client || group->IsMember(event.Player) || group->IsFull())
                 return;
             DungeonReplacement& entry = _dungeons[event.Group];
             if (entry.Map != client->GetMapId() || entry.Instance != client->GetInstanceId())
@@ -400,11 +403,17 @@ private:
         auto playerKey = std::make_pair(event.Instance, event.Player);
         TeamId team = event.Team;
         if (event.Type == ReplacementEventType::BattlegroundLeave)
-            if (auto entry = _battlegroundTeams.find(playerKey); entry != _battlegroundTeams.end())
-            {
-                team = entry->second;
-                _battlegroundTeams.erase(entry);
-            }
+        {
+            auto entry = _battlegroundTeams.find(playerKey);
+            if (entry == _battlegroundTeams.end())
+                return;
+
+            team = entry->second;
+            _battlegroundTeams.erase(entry);
+        }
+        if (event.ServerInitiated)
+            return;
+
         BattlegroundKey key{event.Instance, team};
         if (event.Type == ReplacementEventType::BattlegroundAdd)
         {
@@ -487,8 +496,9 @@ public:
     void OnRemoveMember(Group* group, ObjectGuid guid, RemoveMethod method, ObjectGuid, char const*) override
     {
         if (Enabled() && !group->isBGGroup() &&
-            (method == GROUP_REMOVEMETHOD_KICK || method == GROUP_REMOVEMETHOD_KICK_LFG))
-            Replacements().Queue({ReplacementEventType::GroupKick, group->GetGUID(), guid});
+            (method == GROUP_REMOVEMETHOD_KICK || method == GROUP_REMOVEMETHOD_KICK_LFG ||
+                (method == GROUP_REMOVEMETHOD_LEAVE && group->isLFGGroup())))
+            Replacements().Queue({ReplacementEventType::GroupRemove, group->GetGUID(), guid});
     }
 
     void OnDisband(Group* group) override
@@ -525,6 +535,7 @@ private:
         event.Instance = battleground->GetInstanceID();
         event.BattlegroundType = battleground->GetBgTypeID();
         event.Team = player->GetBgTeamId();
+        event.ServerInitiated = player->CustomData.Get<InstanceExitCleanupState>(InstanceExitCleanupState::Key);
         Replacements().Queue(std::move(event));
     }
 };

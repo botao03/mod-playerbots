@@ -12,13 +12,15 @@
 class PlayerbotAI;
 class Unit;
 
+bool CanRogueSapTarget(Unit const* target);
+
 class CastSapAction : public CastMeleeSpellAction
 {
 public:
     CastSapAction(PlayerbotAI* botAI) : CastMeleeSpellAction(botAI, "sap") {}
 
     Value<Unit*>* GetTargetValue() override;
-    bool isUseful() override { return true; }
+    bool isUseful() override;
 };
 
 class CastGarroteAction : public CastDebuffSpellAction

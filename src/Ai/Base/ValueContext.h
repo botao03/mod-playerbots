@@ -257,6 +257,7 @@ public:
 
         creators["pvp debuff flags"] = [](PlayerbotAI* botAI) { return new PvpDebuffFlagsValue(botAI); };
         creators["pvp magic caster"] = [](PlayerbotAI* botAI) { return new PvpMagicCasterValue(botAI); };
+        creators["pvp rogue opener"] = [](PlayerbotAI* botAI) { return new PvpRogueOpeningValue(botAI); };
         creators["bg type"] = &ValueContext::bg_type;
         creators["rpg bg type"] = &ValueContext::rpg_bg_type;
         creators["arena type"] = &ValueContext::arena_type;

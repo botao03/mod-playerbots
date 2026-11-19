@@ -5,6 +5,14 @@
  */
 
 #include "RogueOpeningActions.h"
+
 #include "Playerbots.h"
 
+bool CanRogueSapTarget(Unit const* target)
+{
+    return target && (!target->IsPlayer() || target->getRace(true) != RACE_UNDEAD_PLAYER);
+}
+
 Value<Unit*>* CastSapAction::GetTargetValue() { return context->GetValue<Unit*>("cc target", getName()); }
+
+bool CastSapAction::isUseful() { return CanRogueSapTarget(GetTarget()); }

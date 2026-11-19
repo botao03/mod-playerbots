@@ -9,10 +9,22 @@
 
 #include "Trigger.h"
 
+class Aura;
 class Spell;
+
+inline constexpr uint32 PVP_ROGUE_BLIND = 2094;
+inline constexpr int32 PVP_ROGUE_CONTROL_CHAIN_WINDOW_MS = 1500;
 
 enum class PvpSituation
 {
+    DuelPreparation,
+    DuelStart,
+    Opening,
+    CasterOpening,
+    SapOpening,
+    RogueReset,
+    MeleePressure,
+    EnemyControlled,
     Controlled,
     Feared,
     FearOrSap,
@@ -28,11 +40,17 @@ enum class PvpSituation
     Burst,
     LowPower,
     Afflicted,
-    MagicDebuff
+    MagicDebuff,
+    SapAfterBlind,
+    RogueRestealth,
+    RogueVanishAfterBlind
 };
 
 char const* PvpTriggerName(PvpSituation situation);
 Unit* GetPvpOpponent(PlayerbotAI* botAI);
+Unit* GetPvpDuelOpponent(PlayerbotAI* botAI);
+Aura const* GetPvpRogueControl(Player const* bot, Unit const* target);
+Spell* GetPvpEnemyCast(Unit* opponent);
 Spell* GetIncomingMagicSpell(Unit* caster, Player* bot);
 bool IsPvpSituationActive(PlayerbotAI* botAI, PvpSituation situation);
 void RegisterPvpCombatTriggers(NamedObjectFactory<Trigger>& factory);

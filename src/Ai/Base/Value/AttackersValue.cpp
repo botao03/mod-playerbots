@@ -11,6 +11,7 @@
 #include "Playerbots.h"
 #include "ReputationMgr.h"
 #include "ServerFacade.h"
+#include "StrandOfTheAncientsActions.h"
 
 GuidVector AttackersValue::Calculate()
 {
@@ -144,6 +145,9 @@ bool AttackersValue::IsPossibleTarget(Unit* attacker, Player* bot, float /*range
 
     // Validity checks
     if (!attacker->IsVisible() || !attacker->IsInWorld() || attacker->GetMapId() != bot->GetMapId())
+        return false;
+
+    if (IsStrandDockTarget(*bot, *attacker))
         return false;
 
     if (attacker->isDead() || attacker->HasSpiritOfRedemptionAura())

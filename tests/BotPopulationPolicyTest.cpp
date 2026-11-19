@@ -10,6 +10,15 @@
 
 int main()
 {
+    assert(!IsPopulationStaged(true, 1));
+    assert(!IsPopulationStaged(true, 2));
+    assert(!IsPopulationStaged(true, 3));
+    assert(!IsPopulationStaged(true, 128));
+    assert(IsPopulationStaged(true, BOT_POPULATION_STAGING_PHASE_MASK));
+    assert(IsPopulationStaged(false, 1));
+    assert(IsPopulationStaged(false, 2));
+    assert(IsPopulationStaged(false, BOT_POPULATION_STAGING_PHASE_MASK));
+
     assert(IsPopulationPatrolZone(1519, 1519));
     assert(!IsPopulationPatrolZone(1519, 12));
     assert(!IsPopulationPatrolZone(1519, 14));
@@ -95,4 +104,27 @@ int main()
 
     auto stable = PlanWorldPopulation({{1, 14, 1}, {0, 12, 1}}, 1, 5);
     assert(stable.size() == 1 && stable[0].Map == 0 && stable[0].Zone == 12);
+
+    assert(SplitWorldPopulationByFaction(50, 0, 0) == std::make_pair(0u, 0u));
+    assert(SplitWorldPopulationByFaction(0, 1, 1) == std::make_pair(0u, 0u));
+    assert(SplitWorldPopulationByFaction(50, 3, 0) == std::make_pair(50u, 0u));
+    assert(SplitWorldPopulationByFaction(50, 0, 3) == std::make_pair(0u, 50u));
+    assert(SplitWorldPopulationByFaction(50, 1, 1) == std::make_pair(25u, 25u));
+    assert(SplitWorldPopulationByFaction(40, 3, 1) == std::make_pair(30u, 10u));
+    assert(SplitWorldPopulationByFaction(40, 1, 3) == std::make_pair(10u, 30u));
+    assert(SplitWorldPopulationByFaction(50, 1000, 1) == std::make_pair(49u, 1u));
+    assert(SplitWorldPopulationByFaction(50, 1, 1000) == std::make_pair(1u, 49u));
+    assert(SplitWorldPopulationByFaction(UINT32_MAX, UINT32_MAX, UINT32_MAX) ==
+        std::make_pair(2147483648u, 2147483647u));
+    for (uint32_t bots = 0; bots <= 50; ++bots)
+        for (uint32_t alliance = 0; alliance <= 10; ++alliance)
+            for (uint32_t horde = 0; horde <= 10; ++horde)
+            {
+                auto [allianceBots, hordeBots] = SplitWorldPopulationByFaction(bots, alliance, horde);
+                assert(allianceBots + hordeBots == (alliance || horde ? bots : 0u));
+                assert(alliance || !allianceBots);
+                assert(horde || !hordeBots);
+                if (bots >= 2 && alliance && horde)
+                    assert(allianceBots && hordeBots);
+            }
 }

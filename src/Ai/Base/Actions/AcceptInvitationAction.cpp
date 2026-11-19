@@ -8,11 +8,11 @@
 #include "BotPopulation.h"
 #include "Event.h"
 #include "Group.h"
+#include "GroupTeleportFollow.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotSecurity.h"
-#include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
 #include "PlayerbotWorldThreadProcessor.h"
 #include "WorldPacket.h"
@@ -76,16 +76,18 @@ public:
 
         if (population && population->Assignment.Purpose == BotPopulationPurpose::World)
         {
+            bool staged = IsPopulationBotStaged(bot);
             population->Ready = true;
-            bot->SetPhaseMask(PHASEMASK_NORMAL, true);
+            if (staged)
+                bot->SetPhaseMask(PHASEMASK_NORMAL, true);
         }
+        SynchronizeGroupFollowerPhase(inviter, bot);
         if (sRandomPlayerbotMgr.IsRandomBot(bot))
             botAI->SetMaster(inviter);
 
         botAI->ResetStrategies();
         botAI->ChangeStrategy("+follow,-lfg,-bg", BOT_STATE_NON_COMBAT);
         botAI->Reset();
-        botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault("hello", "Hello", {}));
 
         LOG_INFO("playerbots", "Group invitation accepted: bot {} inviter {} members {}",
             bot->GetName(), inviter->GetName(), bot->GetGroup()->GetMembersCount());

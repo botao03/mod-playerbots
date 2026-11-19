@@ -7,17 +7,23 @@
 #include "InvalidTargetValue.h"
 #include "AttackersValue.h"
 #include "Playerbots.h"
+#include "PvpCombatTriggers.h"
 #include "Unit.h"
 
 bool InvalidTargetValue::Calculate()
 {
     Unit* target = AI_VALUE(Unit*, qualifier);
     Unit* enemy = AI_VALUE(Unit*, "enemy player target");
+    if (sPlayerbotAIConfig.PvpCombatTactics && target && target->IsControlledByPlayer() && !bot->CanSeeOrDetect(target))
+        return true;
     if (target && enemy && target == enemy && target->IsAlive())
         return false;
 
     if (target && qualifier == "current target")
     {
+        if (sPlayerbotAIConfig.PvpCombatTactics && GetPvpRogueControl(bot, target) && target == GetPvpOpponent(botAI) &&
+            bot->IsWithinDistInMap(target, sPlayerbotAIConfig.SightDistance))
+            return false;
         return target->GetMapId() != bot->GetMapId() || target->HasUnitFlag(UNIT_FLAG_NOT_SELECTABLE) ||
                target->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE) || target->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE_2) ||
                !target->IsVisible() || !target->IsAlive() || target->IsPolymorphed() ||

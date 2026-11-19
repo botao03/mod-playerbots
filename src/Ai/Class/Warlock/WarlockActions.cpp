@@ -243,7 +243,6 @@ bool UseSoulstoneSelfAction::Execute(Event /*event*/)
     if (HasSoulstoneAura(bot))
         return false;
 
-    bot->SetSelection(bot->GetGUID());
     return UseItem(items[0], ObjectGuid::Empty, nullptr, bot);
 }
 

@@ -5,8 +5,10 @@
  */
 
 #include "RogueTriggers.h"
+
 #include "GenericTriggers.h"
 #include "Playerbots.h"
+#include "PvpCombatTriggers.h"
 #include "ServerFacade.h"
 
 namespace
@@ -22,6 +24,9 @@ constexpr uint32 SPELL_SPRINT_RANK_1 = 2983;
 
 bool UnstealthTrigger::IsActive()
 {
+    if (sPlayerbotAIConfig.PvpCombatTactics &&
+        (GetPvpDuelOpponent(botAI) || GetPvpOpponent(botAI) || AI_VALUE(Unit*, "enemy player target")))
+        return false;
     if (!botAI->HasAura("stealth", bot))
         return false;
 
@@ -70,6 +75,16 @@ bool StealthTrigger::IsActive()
         distance += 15;
 
     return target && ServerFacade::instance().GetDistance2d(bot, target) < distance;
+}
+
+bool PvpStealthTrigger::IsActive()
+{
+    if (!sPlayerbotAIConfig.PvpCombatTactics || bot->HasStealthAura() || bot->IsInCombat())
+        return false;
+    Unit* target = AI_VALUE(Unit*, "enemy player target");
+    uint32 id = AI_VALUE2(uint32, "spell id", "stealth");
+    return id && bot->HasSpell(id) && !bot->HasSpellCooldown(id) && target && target->IsInWorld() &&
+           bot->IsInMap(target) && bot->CanSeeOrDetect(target);
 }
 
 bool SapTrigger::IsPossible() { return bot->GetLevel() > 10 && botAI->HasSpell("sap") && !bot->IsInCombat(); }

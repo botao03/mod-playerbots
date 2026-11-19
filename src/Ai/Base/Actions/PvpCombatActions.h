@@ -11,6 +11,23 @@
 #include "PvpCombatTriggers.h"
 
 bool ShouldDelayPvpDefensiveSpell(PlayerbotAI* botAI, std::string const& spell);
+bool ShouldDelayPvpSpell(PlayerbotAI* botAI, std::string const& spell, Unit* target);
+
+class PreparePvpDuelAction : public Action
+{
+public:
+    PreparePvpDuelAction(PlayerbotAI* botAI) : Action(botAI, "prepare pvp duel") {}
+    bool isUseful() override;
+    bool Execute(Event event) override;
+};
+
+class StopPvpAttackAction : public Action
+{
+public:
+    StopPvpAttackAction(PlayerbotAI* botAI) : Action(botAI, "stop pvp attack") {}
+    bool isUseful() override;
+    bool Execute(Event event) override;
+};
 
 class PvpSpellAction : public CastSpellAction, public Qualified
 {
@@ -35,6 +52,7 @@ private:
     bool _interruptCast = true;
     bool _interruptMovement = false;
     std::string _triggerName;
+    ObjectGuid _sappedDuel;
 };
 
 class PvpUseItemAction : public Action

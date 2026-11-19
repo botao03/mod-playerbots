@@ -12,6 +12,8 @@
 
 class PlayerbotAI;
 
+bool IsRogueCarryingFlag(Player const* player);
+
 class CastEvasionAction : public CastBuffSpellAction
 {
 public:

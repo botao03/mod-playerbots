@@ -12,6 +12,7 @@
 
 class ChatHandler;
 class Battleground;
+class BattlegroundSA;
 class PlayerbotAI;
 struct Position;
 
@@ -131,6 +132,7 @@ private:
     bool protectFC();
     bool selectCoordinatedObjective();
     bool strandTactics();
+    bool StrandDefend(BattlegroundSA const& strand, bool right);
     bool useBuff();
     uint32 getPlayersInArea(TeamId teamId, Position point, float range, bool combat = true);
     bool IsLockedInsideKeep();

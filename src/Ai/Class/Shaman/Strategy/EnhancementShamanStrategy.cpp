@@ -39,7 +39,6 @@ std::vector<NextAction> EnhancementShamanStrategy::getDefaultActions()
 {
     return {
        NextAction("stormstrike", 5.5f),
-       NextAction("feral spirit", 5.4f),
        NextAction("earth shock", 5.3f),
        NextAction("lava lash", 5.2f),
        NextAction("melee", 5.0f)
@@ -50,6 +49,8 @@ std::vector<NextAction> EnhancementShamanStrategy::getDefaultActions()
 void EnhancementShamanStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     GenericShamanStrategy::InitTriggers(triggers);
+
+    triggers.push_back(new TriggerNode("generic boost", { NextAction("feral spirit", 29.0f) }));
 
     // Totem Trigger
     triggers.push_back(

@@ -6,6 +6,7 @@
 
 #include "RacialsStrategy.h"
 #include "Playerbots.h"
+#include "RacialSpells.h"
 
 namespace
 {
@@ -28,6 +29,11 @@ RacialsStrategy::RacialsStrategy(PlayerbotAI* botAI) : Strategy(botAI)
 void RacialsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     Player* bot = botAI->GetBot();
+    auto hasActiveSpell = [bot](uint32 spellId)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        return info && !info->IsPassive() && bot->HasSpell(spellId);
+    };
 
     if (bot->HasSpell(SPELL_ARCANE_TORRENT_MANA))
     {
@@ -60,13 +66,13 @@ void RacialsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             "generic boost", { NextAction("berserking", ACTION_NORMAL + 5) }));
     }
 
-    if (bot->HasSpell(SPELL_EVERY_MAN_FOR_HIMSELF))
+    if (hasActiveSpell(SPELL_EVERY_MAN_FOR_HIMSELF))
     {
         triggers.push_back(new TriggerNode(
             "loss of control", { NextAction("every man for himself", ACTION_EMERGENCY + 1) }));
     }
 
-    if (bot->HasSpell(SPELL_WILL_OF_THE_FORSAKEN))
+    if (hasActiveSpell(SPELL_WILL_OF_THE_FORSAKEN))
     {
         triggers.push_back(new TriggerNode(
             "fear charm sleep", { NextAction("will of the forsaken", ACTION_EMERGENCY + 1) }));
@@ -76,6 +82,8 @@ void RacialsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     {
         triggers.push_back(new TriggerNode(
             "poison disease bleed", { NextAction("stoneform", ACTION_DISPEL) }));
+        if (sSpellMgr->GetSpellInfo(Acore::Racials::StoneformImmunity))
+            triggers.push_back(new TriggerNode("often", {NextAction("stoneform", ACTION_NORMAL)}));
     }
 
     if (bot->HasSpell(SPELL_ESCAPE_ARTIST))
@@ -84,7 +92,8 @@ void RacialsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             "movement impaired", { NextAction("escape artist", ACTION_EMERGENCY + 1) }));
     }
 
-    if (botAI->HasSpell("blood fury"))
+    uint32 const bloodFury = botAI->GetAiObjectContext()->GetValue<uint32>("spell id", "blood fury")->Get();
+    if (hasActiveSpell(bloodFury))
     {
         triggers.push_back(new TriggerNode(
             "generic boost", { NextAction("blood fury", ACTION_NORMAL + 5) }));
@@ -92,7 +101,6 @@ void RacialsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     if (botAI->HasSpell("gift of the naaru"))
     {
-        // Currently targets self only
         triggers.push_back(new TriggerNode(
             "medium health", { NextAction("gift of the naaru", ACTION_LIGHT_HEAL + 5) }));
     }

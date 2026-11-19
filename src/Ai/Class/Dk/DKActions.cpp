@@ -37,16 +37,10 @@ std::vector<NextAction> CastBloodMeleeSpellAction::getPrerequisites()
 
 bool CastRaiseDeadAction::Execute(Event event)
 {
-    const bool result = CastBuffSpellAction::Execute(event);
-
-    if (!result)
+    if (Guardian* ghoul = bot->GetGuardianPet(); ghoul && ghoul->IsAlive())
         return false;
 
-    const uint32_t spellId = AI_VALUE2(uint32_t, "spell id", spell);
-
-    bot->AddSpellCooldown(spellId, 0, 3 * MINUTE * IN_MILLISECONDS);
-
-    return true;
+    return CastBuffSpellAction::Execute(event);
 }
 
 Unit* CastHysteriaAction::GetTarget()

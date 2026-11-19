@@ -25,6 +25,7 @@
 #include "Util.h"
 #include "WorldPacket.h"
 #include <stack>
+#include <string_view>
 
 class Action;
 class AiObjectContext;
@@ -494,6 +495,7 @@ public:
     bool Yell(std::string const& msg);
     bool Say(std::string const& msg);
     bool Whisper(std::string const& msg, std::string const& receiverName);
+    bool Whisper(std::string_view message, Player* receiver);
 
     void SpellInterrupted(uint32 spellid);
     int32 CalculateGlobalCooldown(uint32 spellid);

@@ -19,6 +19,12 @@ constexpr uint32 BG_EY_NETHERSTORM_FLAG_SPELL = 34976;
 constexpr uint32 SPELL_MASTER_POISONER_RANK_3 = 58410;
 }
 
+bool IsRogueCarryingFlag(Player const* player)
+{
+    return player->HasAura(BG_WS_SPELL_WARSONG_FLAG) || player->HasAura(BG_WS_SPELL_SILVERWING_FLAG) ||
+           player->HasAura(BG_EY_NETHERSTORM_FLAG_SPELL);
+}
+
 bool CastStealthAction::isUseful()
 {
     Unit* target = AI_VALUE(Unit*, "current target");
@@ -29,9 +35,7 @@ bool CastStealthAction::isUseful()
 
 bool CastStealthAction::isPossible()
 {
-    // do not use with WSG flag or EYE flag
-    return !bot->HasAura(BG_WS_SPELL_WARSONG_FLAG) && !bot->HasAura(BG_WS_SPELL_SILVERWING_FLAG) &&
-           !bot->HasAura(BG_EY_NETHERSTORM_FLAG_SPELL);
+    return !IsRogueCarryingFlag(bot);
 }
 
 bool UnstealthAction::Execute(Event /*event*/)
@@ -58,9 +62,7 @@ bool CheckStealthAction::Execute(Event /*event*/)
 
 bool CastVanishAction::isUseful()
 {
-    // do not use with WSG flag or EYE flag
-    return !bot->HasAura(BG_WS_SPELL_WARSONG_FLAG) && !bot->HasAura(BG_WS_SPELL_SILVERWING_FLAG) &&
-           !bot->HasAura(BG_EY_NETHERSTORM_FLAG_SPELL);
+    return !IsRogueCarryingFlag(bot);
 }
 
 bool CastEnvenomAction::isUseful()

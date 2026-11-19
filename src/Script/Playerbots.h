@@ -19,6 +19,12 @@
 #include "SpellMgr.h"
 #include "TravelNode.h"
 
+inline bool IsAcceptedDuel(Player const* player)
+{
+    return player && player->duel &&
+           (player->duel->State == DUEL_STATE_COUNTDOWN || player->duel->State == DUEL_STATE_IN_PROGRESS);
+}
+
 std::vector<std::string> split(std::string const s, char delim);
 void split(std::vector<std::string>& dest, std::string const str, char const* delim);
 #ifndef WIN32

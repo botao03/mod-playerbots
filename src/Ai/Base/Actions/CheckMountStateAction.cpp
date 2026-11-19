@@ -5,6 +5,8 @@
  */
 
 #include "CheckMountStateAction.h"
+#include "BotRiding.h"
+#include "GroupTeleportFollow.h"
 #include "PlayerbotsDatabase.h"
 #include "AreaDefines.h"
 #include "BattleGroundTactics.h"
@@ -21,6 +23,7 @@
 
 static constexpr uint32 SPELL_COLD_WEATHER_FLYING = 54197;
 static constexpr float PARACHUTE_LAND_THRESHOLD = 15.0f;
+static bool BotCanUseFlyingMount(Player const* bot);
 
 // Preferred mounts per bot, loaded once at startup by LoadPreferredMounts()
 std::unordered_map<uint32, PreferredMountCache> CheckMountStateAction::mountCache;
@@ -65,6 +68,49 @@ MountData CollectMountData(Player const* bot)
         data.allSpells[index][speed].push_back(spellId);
     }
     return data;
+}
+
+bool CheckMountStateAction::MatchRecallMount(Player* bot, Player* master)
+{
+    if (!bot || !master || !bot->IsInWorld() || bot->IsBeingTeleported())
+        return false;
+
+    bool const shouldMount = IsUsingMountOrTravelForm(master) && !master->GetVehicle() && !bot->GetVehicle();
+    bool const flying = shouldMount && IsUsingFlyingMount(master);
+    if (shouldMount && IsUsingMountOrTravelForm(bot) && IsUsingFlyingMount(bot) == flying &&
+        (!flying || BotCanUseFlyingMount(bot)))
+        return true;
+
+    bot->RemoveAurasByType(SPELL_AURA_MOUNTED);
+    bot->RemoveAurasDueToSpell(SPELL_TRAVEL_FORM);
+    bot->RemoveAurasDueToSpell(SPELL_FLIGHT_FORM);
+    bot->RemoveAurasDueToSpell(SPELL_SWIFT_FLIGHT_FORM);
+    if (!bot->GetVehicle() && !bot->HasFlyAura())
+        bot->RemoveUnitMovementFlag(MOVEMENTFLAG_FLYING | MOVEMENTFLAG_DISABLE_GRAVITY | MOVEMENTFLAG_CAN_FLY);
+    if (!shouldMount)
+        return true;
+    if (!bot->IsOutdoors() || (flying && !BotCanUseFlyingMount(bot)))
+        return false;
+
+    MountData const mounts = CollectMountData(bot);
+    auto const type = mounts.allSpells.find(flying ? 1 : 0);
+    if (type == mounts.allSpells.end())
+        return false;
+    for (auto tier = type->second.rbegin(); tier != type->second.rend(); ++tier)
+    {
+        for (uint32 spellId : tier->second)
+        {
+            SpellInfo const* spell = sSpellMgr->GetSpellInfo(spellId);
+            if (!spell ||
+                spell->CheckLocation(bot->GetMapId(), bot->GetZoneId(), bot->GetAreaId(), bot) != SPELL_CAST_OK)
+                continue;
+            // Recall must establish flight before the next movement tick, without a mount cast delay.
+            bot->CastSpell(bot, spellId, true);
+            if (bot->IsMounted() && (!flying || IsUsingFlyingMount(bot)))
+                return true;
+        }
+    }
+    return false;
 }
 
 bool CheckMountStateAction::Execute(Event /*event*/)
@@ -155,6 +201,9 @@ bool CheckMountStateAction::Execute(Event /*event*/)
 
 bool CheckMountStateAction::isUseful()
 {
+    if (IsAcceptedDuel(bot) || IsWaitingForFlyingMaster(bot))
+        return false;
+
     // Not useful when:
     if (botAI->IsInVehicle() || bot->isDead() || bot->HasUnitState(UNIT_STATE_IN_FLIGHT) ||
         !bot->IsOutdoors() || bot->InArena())
@@ -238,7 +287,20 @@ bool CheckMountStateAction::Mount()
     if (spellsIt != mountData.allSpells.end())
     {
         auto& spells = spellsIt->second;
-        if (TryRandomMountFiltered(spells, masterSpeed))
+        if (TryRandomMountFiltered(spells))
+            return true;
+    }
+
+    // The master's flying mount may be forbidden at the bot's current position.
+    if (masterMountType == 1)
+    {
+        LOG_DEBUG("playerbots", "Bot {} cannot use a flying mount at map {} zone {} area {} "
+                  "(riding {}, cold weather flying {}); trying a ground mount",
+                  bot->GetName(), bot->GetMapId(), bot->GetZoneId(), bot->GetAreaId(),
+                  bot->GetPureSkillValue(SKILL_RIDING), bot->HasSpell(SPELL_COLD_WEATHER_FLYING));
+
+        auto const groundSpells = mountData.allSpells.find(0);
+        if (groundSpells != mountData.allSpells.end() && TryRandomMountFiltered(groundSpells->second))
             return true;
     }
 
@@ -412,27 +474,14 @@ bool CheckMountStateAction::TryPreferredMount(Player* master) const
     if (bot->isMoving())
         bot->StopMoving();
 
-    // Check if spell can be cast - for now allow all, even if the bot does not have the actual mount
-    //if (botAI->CanCastSpell(mountId, botAI->GetBot()))
-    //{
-    botAI->CastSpell(chosenMountId, botAI->GetBot());
-    return true;
-    //}
-
-    LOG_DEBUG("playerbots", "Preferred mount failed! | Bot Guid: {}", botGUID);
-    return false;
+    return botAI->CastSpell(chosenMountId, botAI->GetBot());
 }
 
-bool CheckMountStateAction::TryRandomMountFiltered(std::map<int32, std::vector<uint32>> const& spells, int32 masterSpeed) const
+bool CheckMountStateAction::TryRandomMountFiltered(std::map<int32, std::vector<uint32>> const& spells) const
 {
     for (auto it = spells.rbegin(); it != spells.rend(); ++it)
     {
-        int32 currentSpeed = it->first;
-
-        if ((masterSpeed > 59 && currentSpeed < 99) || (masterSpeed > 149 && currentSpeed < 279))
-            continue;
-
-        // Pick a random mount from the candidate group.
+        // Try every mount in a speed tier, starting at a random one.
         auto const& ids = it->second;
         if (!ids.empty())
         {
@@ -440,12 +489,12 @@ bool CheckMountStateAction::TryRandomMountFiltered(std::map<int32, std::vector<u
             if (bot->isMoving())
                 bot->StopMoving();
 
-            uint32 index = urand(0, ids.size() - 1);
-
-            if (botAI->CanCastSpell(ids[index], bot))
+            uint32 const firstIndex = urand(0, ids.size() - 1);
+            for (std::size_t offset = 0; offset < ids.size(); ++offset)
             {
-                botAI->CastSpell(ids[index], bot);
-                return true;
+                uint32 const spellId = ids[(firstIndex + offset) % ids.size()];
+                if (botAI->CanCastSpell(spellId, bot) && botAI->CastSpell(spellId, bot))
+                    return true;
             }
         }
     }

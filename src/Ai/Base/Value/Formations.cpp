@@ -142,29 +142,33 @@ public:
         if (!ValidateTargetContext(master, bot, map))
             return Formation::NullLocation;
 
-        float range = sPlayerbotAIConfig.FollowDistance;
-        float angle = GetFollowAngle();
-
-        time_t now = time(nullptr);
-        if (!lastChangeTime || now - lastChangeTime >= 3)
+        bool const proximityFollow = IsRealPlayer(master);
+        float const range = proximityFollow ? PLAYER_FOLLOW_RADIUS / 2.0f : sPlayerbotAIConfig.FollowDistance;
+        float const angle = proximityFollow ? master->GetAngle(bot) : GetFollowAngle();
+        if (!proximityFollow)
         {
-            lastChangeTime = now;
-
-            dx = (urand(0, 10) / 10.0f - 0.5f) * sPlayerbotAIConfig.TooCloseDistance;
-            dy = (urand(0, 10) / 10.0f - 0.5f) * sPlayerbotAIConfig.TooCloseDistance;
-            dr = std::sqrt(dx * dx + dy * dy);
+            time_t const now = time(nullptr);
+            if (!lastChangeTime || now - lastChangeTime >= 3)
+            {
+                lastChangeTime = now;
+                dx = (urand(0, 10) / 10.0f - 0.5f) * sPlayerbotAIConfig.TooCloseDistance;
+                dy = (urand(0, 10) / 10.0f - 0.5f) * sPlayerbotAIConfig.TooCloseDistance;
+                dr = std::sqrt(dx * dx + dy * dy);
+            }
         }
 
-        float x = master->GetPositionX() + std::cos(angle) * range + dx;
-        float y = master->GetPositionY() + std::sin(angle) * range + dy;
+        float const destX = master->GetPositionX() + std::cos(angle) * range + (proximityFollow ? 0.0f : dx);
+        float const destY = master->GetPositionY() + std::sin(angle) * range + (proximityFollow ? 0.0f : dy);
+        float x = destX;
+        float y = destY;
         float z = master->GetPositionZ() + master->GetHoverHeight();
 
         if (!map->CheckCollisionAndGetValidCoords(master, master->GetPositionX(), master->GetPositionY(),
                                                   master->GetPositionZ(), x, y, z))
         {
             // Recompute a clean fallback and clamp Z
-            x = master->GetPositionX() + std::cos(angle) * range + dx;
-            y = master->GetPositionY() + std::sin(angle) * range + dy;
+            x = destX;
+            y = destY;
             z = master->GetPositionZ() + master->GetHoverHeight();
 
             master->UpdateAllowedPositionZ(x, y, z);
@@ -174,8 +178,10 @@ public:
     }
 
     float GetMaxDistance() override { return sPlayerbotAIConfig.FollowDistance + dr; }
+    float GetProximityFollowRadius() override { return IsRealPlayer(GetMaster()) ? PLAYER_FOLLOW_RADIUS : 0.0f; }
 
 private:
+    static constexpr float PLAYER_FOLLOW_RADIUS = 8.0f;
     time_t lastChangeTime;
     float dx = 0.f;
     float dy = 0.f;
